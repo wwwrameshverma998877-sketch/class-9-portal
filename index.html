@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="A focused study portal for Class 9 students.">
+  <title>Northstar | Class 9 Study Portal</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <div id="login-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="brand-mark" aria-hidden="true">N</div>
+      <p class="eyebrow">Northstar learning hub</p>
+      <div id="onboarding-step-1" class="onboarding-step">
+        <p class="step-count">Step 1 of 3</p>
+        <h1 id="login-title">Welcome to<br><span>Northstar.</span></h1>
+        <p class="login-intro">Sign in with Google to begin your Class 9 study journey.</p>
+        <button id="google-login-btn" class="button google-button button-full" type="button" onclick="signInWithGoogle()">Sign in with Google <span aria-hidden="true">&#8594;</span></button>
+      </div>
+
+      <form id="access-form" class="onboarding-step" hidden>
+        <p class="step-count">Step 2 of 3</p>
+        <h1>Verify your<br><span>student access.</span></h1>
+        <p class="login-intro">Enter the access code and roll number assigned to you.</p>
+        <label for="access-code">Access Code</label>
+        <input id="access-code" name="accessCode" type="text" placeholder="NS-0000" required disabled>
+        <label for="roll-no">Roll Number</label>
+        <select id="roll-no" name="rollNo" required disabled>
+          <option value="">Select roll number</option>
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+          <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
+          <option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+          <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
+          <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
+          <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
+        </select>
+        <p id="login-message" class="form-message" role="alert"></p>
+        <button class="button button-primary button-full" type="submit">Continue <span aria-hidden="true">&#8594;</span></button>
+      </form>
+
+      <form id="name-form" class="onboarding-step" hidden>
+        <p class="step-count">Step 3 of 3</p>
+        <h1>What should we<br><span>call you?</span></h1>
+        <p class="login-intro">Choose the display name your classmates will see in the portal.</p>
+        <label for="custom-name">Preferred display name</label>
+        <input id="custom-name" name="customName" type="text" placeholder="e.g. Aarav Sharma" autocomplete="name" required>
+        <p id="name-message" class="form-message" role="alert"></p>
+        <button class="button button-primary button-full" type="submit">Enter portal <span aria-hidden="true">&#8594;</span></button>
+      </form>
+    </div>
+  </div>
+
+  <div id="change-name-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="change-name-title" hidden>
+    <div class="login-card name-edit-card">
+      <button id="close-name-modal" class="modal-close icon-button" type="button" aria-label="Close name editor">&#10005;</button>
+      <p class="eyebrow">Profile settings</p>
+      <h1 id="change-name-title">Change your<br><span>display name.</span></h1>
+      <form id="change-name-form" class="onboarding-step">
+        <label for="profile-name-input">Preferred display name</label>
+        <input id="profile-name-input" type="text" required autocomplete="name">
+        <p id="change-name-message" class="form-message" role="alert"></p>
+        <button class="button button-primary button-full" type="submit">Save name <span aria-hidden="true">&#8594;</span></button>
+      </form>
+    </div>
+  </div>
+
+  <main id="app-view" class="app-shell" hidden>
+    <header class="topbar">
+      <a class="wordmark" href="#top" aria-label="Northstar home"><span>N</span> northstar</a>
+      <button id="nav-login-button" class="button nav-login-button" type="button" hidden>Login / Sign In</button>
+      <div id="user-profile" class="user-menu profile-badge">
+        <div class="user-copy">
+          <strong id="user-display-name">Student Name</strong>
+          <span id="header-class">Roll no 1</span>
+        </div>
+        <div id="header-avatar" class="avatar" aria-hidden="true">S</div>
+        <button id="change-name-button" class="profile-logout" type="button">Change Name</button>
+        <button id="logout-button" class="profile-logout" type="button" title="Log out">Logout</button>
+      </div>
+    </header>
+
+    <div id="top" class="page-content">
+      <section class="welcome-panel" aria-label="Public announcement">
+        <div>
+          <p class="eyebrow">Northstar announcement</p>
+          <h2>Study smarter,<br><span>together.</span></h2>
+          <p class="welcome-copy">Browse the latest doubts, discover class notes, and join the conversation with your classmates.</p>
+        </div>
+        <div class="progress-orbit" aria-label="Weekly study progress: 68 percent">
+          <div class="progress-inner"><strong>68%</strong><span>weekly focus</span></div>
+        </div>
+      </section>
+
+      <section class="section-block admin-panel" aria-labelledby="admin-title" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Portal controls</p>
+            <h3 id="admin-title">Admin panel</h3>
+          </div>
+          <span class="status-pill"><i></i> System online</span>
+        </div>
+        <div class="admin-grid">
+          <div class="admin-action">
+            <div class="section-icon warm">&#43;</div>
+            <div><h4>Create an access code</h4><p>Assign a code to a student or administrator.</p></div>
+            <form id="admin-code-form" class="admin-code-form">
+              <input id="new-code" name="code" type="text" placeholder="Code e.g. NS-2026" required>
+              <select id="new-role" name="role" required><option value="student">Student</option><option value="admin">Admin</option></select>
+              <input id="new-student-name" name="studentName" type="text" placeholder="Student name" required>
+              <select id="new-roll-no" name="rollNo" required>
+                <option value="">Roll no</option>
+                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+                <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
+                <option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+                <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
+                <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
+                <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
+              </select>
+              <button id="generate-code" class="button button-outline" type="submit">Create code</button>
+            </form>
+            <p id="admin-code-message" class="form-message" role="status"></p>
+          </div>
+          <div class="code-list-wrap">
+            <div class="mini-heading"><h4>Valid codes</h4><span id="code-count">2 active</span></div>
+            <ul id="code-list" class="code-list">
+              <li><code>NS-2026</code><span>Active now</span></li>
+              <li><code>NS-STUDY</code><span>Active now</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <div class="content-grid">
+        <section class="section-block notes-section" aria-labelledby="notes-title">
+          <div class="section-heading compact-heading">
+            <div><p class="eyebrow">Your library</p><h3 id="notes-title">Class notes</h3></div>
+            <span id="notes-count" class="count-label">0 files</span>
+          </div>
+          <div class="notes-list">
+          </div>
+          <form id="upload-notes-form" class="upload-notes-form">
+            <fieldset class="upload-source-options">
+              <legend>Upload source</legend>
+              <label><input type="radio" name="uploadSource" value="local" checked> Upload Local PDF</label>
+              <label><input type="radio" name="uploadSource" value="drive"> Import from Google Drive Link</label>
+            </fieldset>
+            <label for="note-title-input">Note title</label>
+            <input id="note-title-input" name="noteTitle" type="text" placeholder="e.g. Algebra essentials" required>
+            <div class="upload-row">
+              <label class="file-input-label" for="note-file-input">PDF file</label>
+              <input id="note-file-input" name="noteFile" type="file" accept=".pdf,application/pdf" required>
+              <input id="drive-link-input" name="driveLink" type="url" placeholder="https://drive.google.com/..." hidden>
+              <button class="button button-outline" type="submit">Upload</button>
+            </div>
+            <p id="upload-message" class="form-message" role="status"></p>
+          </form>
+          <div id="notes-list-container"></div>
+        </section>
+
+        <section class="section-block ask-section" aria-labelledby="ask-title">
+          <p class="eyebrow">Need a hand?</p>
+          <h3 id="ask-title">Ask a question</h3>
+          <form id="question-form" class="question-form">
+            <label for="question-subject">Subject</label>
+            <select id="question-subject" required><option value="">Choose a subject</option><option>Mathematics</option><option>Science</option><option>English</option><option>Social Studies</option></select>
+            <label for="question-text">Your question</label>
+            <textarea id="question-text" rows="4" placeholder="What would you like to understand better?" required></textarea>
+            <button id="post-question-button" class="button button-dark button-full" type="submit">Post a New Question <span aria-hidden="true">&#8594;</span></button>
+            <p id="question-message" class="form-message" role="status"></p>
+          </form>
+        </section>
+      </div>
+
+      <section class="section-block feed-section" aria-labelledby="feed-title">
+        <div class="section-heading">
+          <div><p class="eyebrow">Learn together</p><h3 id="feed-title">Questions feed</h3></div>
+          <span class="live-label"><i></i> Live discussion</span>
+        </div>
+        <div class="feed-tools" aria-label="Filter and search questions">
+          <div class="subject-tabs" role="group" aria-label="Filter by subject">
+            <button class="subject-tab is-active" type="button" data-subject="All">All</button>
+            <button class="subject-tab" type="button" data-subject="Science">Science</button>
+            <button class="subject-tab" type="button" data-subject="Mathematics">Math</button>
+            <button class="subject-tab" type="button" data-subject="Social Studies">Social Science</button>
+            <button class="subject-tab" type="button" data-subject="English">English</button>
+          </div>
+          <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search doubts..." autocomplete="off"></label>
+        </div>
+        <div id="questions-feed" class="feed-list">
+          <article class="question-card"><div class="feed-avatar blue">M</div><div class="question-body"><div class="question-meta"><strong>Mira Patel</strong><span>Mathematics &middot; 14 min ago</span></div><p>How do we know which factorisation method to use for a quadratic expression?</p><div class="answer-count">&#8617; 3 answers</div></div></article>
+          <article class="question-card"><div class="feed-avatar orange">R</div><div class="question-body"><div class="question-meta"><strong>Rohan Mehta</strong><span>Science &middot; 42 min ago</span></div><p>Can someone explain the difference between an atom and an ion in simple terms?</p><div class="answer-count">&#8617; 5 answers</div></div></article>
+        </div>
+      </section>
+    </div>
+    <footer class="footer">Northstar Study Portal <span>&middot;</span> Built for curious minds</footer>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="script.js"></script>
+</body>
+</html>
