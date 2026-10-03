@@ -1,27 +1,45 @@
 const SUPABASE_URL = "https://jscgedmfzdxpbtmokazf.supabase.co/rest/v1/";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzY2dlZG1memR4cGJ0bW9rYXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTYwNjAsImV4cCI6MjEwNDc5MjA2MH0.bGFzIlqtQYfByOC9dGNEihIhX-jfX72g7tZ8-wZeTeg";
 const SUPABASE_PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "");
-const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
+const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true
+  }
+});
 const DRIVE_FOLDER_ID = "1kvzcnMaijD6g06GT5loXUtJ1xom7N2t0";
 const DRIVE_API_KEY = "AIzaSyDL9mJG7q0JFRXSKNjLKIdYR4nyS8I5ZE0";
 const ADMIN_EMAIL = "www.rameshverma998877@gmail.com";
+const MAX_PDF_SIZE = 10 * 1024 * 1024;
+const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
+const DEVICE_TOKEN = localStorage.getItem("device_token") || (() => {
+  const token = globalThis.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  localStorage.setItem("device_token", token);
+  return token;
+})();
 
 let activeSession = null;
 let isLoggedIn = false;
 let isAdmin = false;
+let googleAccessToken = null;
 let onboardingAuthUser = null;
 let onboardingAccess = null;
 let allQuestions = [];
+let allNotes = [];
 let activeSubject = "All";
+let activeNotesSubject = "All";
 let searchTerm = "";
 const locallyPostedAnswerIds = new Set();
 let realtimeQuestionsChannel = null;
 let realtimeNotesChannel = null;
 let realtimeAnswersChannel = null;
+let realtimePollsChannel = null;
 let authStateSubscription = null;
 let initPromise = null;
 let notesListObserver = null;
 let driveSyncPromise = null;
+let activeNoteUploadXhr = null;
+let noteUploadCancelRequested = false;
 
 const loginModal = document.getElementById("login-modal");
 const appView = document.getElementById("app-view");
@@ -51,19 +69,29 @@ function updateUIState(loggedIn) {
       control.disabled = !loggedIn;
       control.title = loggedIn ? "Upload notes or documents" : "Please login with Google to participate.";
     });
+    const driveSourceOption = document.getElementById("drive-source-option");
+    if (driveSourceOption) driveSourceOption.disabled = !loggedIn || !isAdmin;
+    const browseDriveButton = document.getElementById("browse-drive-button");
+    if (browseDriveButton) browseDriveButton.disabled = !loggedIn || !isAdmin;
   }
   const postQuestionButton = document.getElementById("post-question-button");
   if (postQuestionButton) {
     postQuestionButton.disabled = !loggedIn;
     postQuestionButton.title = loggedIn ? "Post a new question" : "Please login with Google to participate.";
   }
+  document.querySelectorAll("#poll-create-form input, #poll-create-form button").forEach((control) => {
+    control.disabled = !loggedIn;
+  });
   document.getElementById("nav-login-button").hidden = loggedIn;
   document.querySelector(".user-menu").hidden = !loggedIn;
 }
 
 async function signInWithGoogle() {
   const { error } = await supabaseClient.auth.signInWithOAuth({
-    provider: "google"
+    provider: "google",
+    options: {
+      scopes: "https://www.googleapis.com/auth/drive.readonly"
+    }
   });
   if (error) {
     showMessage(loginMessage, "Unable to start Google sign-in.", true);
@@ -71,18 +99,32 @@ async function signInWithGoogle() {
   }
 }
 
+function showGoogleLoginStep() {
+  activeSession = null;
+  onboardingAuthUser = null;
+  onboardingAccess = null;
+  isAdmin = false;
+  appView.hidden = true;
+  loginModal.hidden = false;
+  document.getElementById("onboarding-step-1").hidden = false;
+  accessForm.hidden = true;
+  nameForm.hidden = true;
+  document.getElementById("access-code").disabled = true;
+  document.getElementById("roll-no").disabled = true;
+  updateUIState(false);
+}
+
 async function handleAuthSession(authSession) {
   if (!authSession) {
-    onboardingAuthUser = null;
-    isAdmin = false;
-    updateUIState(false);
-    if (adminPanel) adminPanel.hidden = true;
-    appView.hidden = true;
-    loginModal.hidden = false;
+    showGoogleLoginStep();
+    googleAccessToken = null;
+    sessionStorage.removeItem("googleProviderToken");
     return;
   }
 
   onboardingAuthUser = authSession.user;
+  googleAccessToken = authSession.provider_token || sessionStorage.getItem("googleProviderToken") || googleAccessToken;
+  if (authSession.provider_token) sessionStorage.setItem("googleProviderToken", authSession.provider_token);
   isAdmin = onboardingAuthUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
   updateUIState(true);
   if (adminPanel) adminPanel.hidden = !isAdmin;
@@ -105,9 +147,9 @@ function getRollNo(record) {
 }
 
 async function releaseActiveSession(session = activeSession || onboardingAccess) {
-  if (!session?.authUserId || !session.rollNo || session.rollNo === "-") return;
+  if (!session?.deviceToken || !session.rollNo || session.rollNo === "-") return;
   try {
-    const response = await fetch(`${SUPABASE_URL}Credentials?roll_no=eq.${encodeURIComponent(session.rollNo)}&active_session_id=eq.${encodeURIComponent(session.authUserId)}`, {
+    const response = await fetch(`${SUPABASE_URL}Credentials?roll_no=eq.${encodeURIComponent(session.rollNo)}&active_session_id=eq.${encodeURIComponent(session.deviceToken)}`, {
       method: "PATCH",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -139,26 +181,38 @@ function subjectClass(subject) {
   return subject.toLowerCase().replace(/\s+/g, "-");
 }
 
-function subjectsMatch(questionSubject, selectedSubject) {
-  if (selectedSubject === "All") return true;
-  const aliases = {
-    Mathematics: ["mathematics", "math"],
-    "Social Studies": ["social studies", "social science"]
-  };
-  const acceptedSubjects = aliases[selectedSubject] || [selectedSubject.toLowerCase()];
-  return acceptedSubjects.includes((questionSubject || "").trim().toLowerCase());
-}
-
 function renderFilteredQuestions() {
   const feed = document.getElementById("questions-feed");
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredQuestions = allQuestions.filter((item) => {
     const subject = item.subject || "General";
-    const matchesSubject = subjectsMatch(subject, activeSubject);
+    const matchesSubject = activeSubject === "All" || subject === activeSubject;
     const searchableText = `${item.author_name || item.author || ""} ${subject} ${item.question_text || item.question || ""}`.toLowerCase();
     return matchesSubject && (!normalizedSearch || searchableText.includes(normalizedSearch));
   });
   feed.replaceChildren(...filteredQuestions.map(renderQuestionCard));
+}
+
+function populateSubjectOptions() {
+  const questionSubject = document.getElementById("question-subject");
+  const questionFilter = document.getElementById("question-subject-filter");
+  const noteCategory = document.getElementById("note-category-input");
+  const notesFilter = document.getElementById("notes-filter");
+
+  SUBJECTS.forEach((subject) => {
+    const questionOption = new Option(subject, subject);
+    questionSubject.add(questionOption);
+    questionFilter.add(new Option(subject, subject));
+    noteCategory.add(new Option(subject, subject));
+    notesFilter.add(new Option(subject, subject));
+  });
+}
+
+function renderNotes() {
+  const notesContainer = document.getElementById("notes-list-container");
+  const filteredNotes = allNotes.filter((note) => activeNotesSubject === "All" || note.subject === activeNotesSubject);
+  notesContainer.replaceChildren(...filteredNotes.map(renderNoteCard));
+  updateNotesCount();
 }
 
 function showMessage(element, message, isError = false) {
@@ -194,7 +248,49 @@ async function showApp(session) {
   renderUser(session);
   loginModal.hidden = true;
   appView.hidden = false;
-  await Promise.all([renderCodes(), fetchQuestions(), fetchNotes()]);
+  subscribeToPollChanges();
+  await Promise.all([renderCodes(), fetchQuestions(), fetchNotes(), fetchPolls()]);
+}
+
+async function restoreOnboardedSession(authSession) {
+  const savedSession = sessionStorage.getItem("classPortal.activeSession");
+  let storedSession = null;
+  try {
+    storedSession = savedSession ? JSON.parse(savedSession) : null;
+  } catch (error) {
+    console.error("Unable to parse saved session.", error);
+    sessionStorage.removeItem("classPortal.activeSession");
+  }
+
+  const rollNo = storedSession?.rollNo || authSession.user.user_metadata?.roll_no;
+  if (!rollNo) return null;
+
+  const { data: credential, error } = await supabaseClient
+    .from("Credentials")
+    .select("code, role, student_name, roll_no, active_session_id")
+    .eq("roll_no", rollNo)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Unable to restore the onboarded Credentials record.", error);
+    return null;
+  }
+  if (!credential?.student_name?.trim()) return null;
+  if (credential.active_session_id && credential.active_session_id !== DEVICE_TOKEN) {
+    return { securityConflict: true };
+  }
+
+  const session = {
+    name: titleCaseName(credential.student_name),
+    code: credential.code,
+    role: credential.role || "student",
+    rollNo: credential.roll_no,
+    authUserId: authSession.user.id,
+    deviceToken: DEVICE_TOKEN
+  };
+  sessionStorage.setItem("customName", credential.student_name);
+  sessionStorage.setItem("classPortal.activeSession", JSON.stringify(session));
+  return session;
 }
 
 async function login(name, rollNo, accessCode, authUserId) {
@@ -208,14 +304,14 @@ async function login(name, rollNo, accessCode, authUserId) {
 
   if (error) throw error;
   if (!accessCodeRecord) return null;
-  if (accessCodeRecord.active_session_id && accessCodeRecord.active_session_id !== authUserId) return { occupied: true };
+  if (accessCodeRecord.active_session_id && accessCodeRecord.active_session_id !== DEVICE_TOKEN) return { occupied: true };
 
   const { data: claimedRows, error: claimError } = await supabaseClient
     .from("Credentials")
-    .update({ active_session_id: authUserId })
+    .update({ active_session_id: DEVICE_TOKEN })
     .eq("code", accessCodeRecord.code)
     .eq("roll_no", rollNo)
-    .or(`active_session_id.is.null,active_session_id.eq.${authUserId}`)
+    .or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`)
     .select("code");
 
   if (claimError) throw claimError;
@@ -226,8 +322,19 @@ async function login(name, rollNo, accessCode, authUserId) {
     code: accessCodeRecord.code,
     role: accessCodeRecord.role || "student",
     rollNo: accessCodeRecord.roll_no || rollNo || "-",
-    authUserId
+    authUserId,
+    deviceToken: DEVICE_TOKEN
   };
+}
+
+async function isStudentNameTaken(customName, currentRollNo) {
+  const { data: matches, error } = await supabaseClient
+    .from("Credentials")
+    .select("roll_no")
+    .ilike("student_name", customName)
+    .limit(20);
+  if (error) throw error;
+  return matches.some((record) => String(record.roll_no) !== String(currentRollNo));
 }
 
 async function renderCodes() {
@@ -366,21 +473,78 @@ function renderNoteCard(note) {
   const uploader = document.createElement("span");
   const roleBadge = document.createElement("span");
   const link = document.createElement("a");
+  const deleteButton = document.createElement("button");
 
   card.className = "note-card";
   title.textContent = note.title || "Untitled note";
   metadata.className = "note-card-meta";
-  uploader.textContent = note.uploader_name || note.uploaded_by || "Portal member";
+  const uploaderName = note.uploaded_by || note.uploader_name || "Portal member";
+  uploader.textContent = `Uploaded by: ${uploaderName}`;
   roleBadge.className = "note-role-badge";
   roleBadge.textContent = note.uploader_role === "admin" ? "Admin" : "Student";
   metadata.append(uploader, roleBadge);
+  if (note.subject) {
+    const subjectBadge = document.createElement("span");
+    subjectBadge.className = "note-role-badge note-subject-badge";
+    subjectBadge.textContent = note.subject;
+    metadata.append(subjectBadge);
+  }
   link.className = "note-card-link";
-  link.href = note.file_url;
+  link.href = `https://docs.google.com/viewer?url=${encodeURIComponent(note.file_url)}&embedded=true`;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
-  link.textContent = "View / Download PDF";
-  card.append(title, metadata, link);
+  link.textContent = "View PDF";
+  deleteButton.className = "button button-outline delete-note-button";
+  deleteButton.type = "button";
+  deleteButton.textContent = "Delete Note";
+  deleteButton.disabled = !isAdmin;
+  deleteButton.title = isAdmin ? "Delete this note" : "Admin access required";
+  deleteButton.addEventListener("click", () => void deleteNote(note, card));
+  card.append(title, metadata, link, deleteButton);
   return card;
+}
+
+function getNotesStoragePath(fileUrl) {
+  try {
+    const pathname = new URL(fileUrl).pathname;
+    const match = pathname.match(/\/storage\/v1\/object\/(?:public|sign)\/notes-bucket\/(.+)$/);
+    return match ? decodeURIComponent(match[1]) : null;
+  } catch (error) {
+    return null;
+  }
+}
+
+async function deleteNote(note, card) {
+  if (!isAdmin) {
+    window.alert("Only Admin users can delete notes.");
+    return;
+  }
+  if (!window.confirm("Are you sure you want to delete this note?")) return;
+
+  const deleteButton = card.querySelector(".delete-note-button");
+  deleteButton.disabled = true;
+  try {
+    const storagePath = getNotesStoragePath(note.file_url);
+    if (storagePath) {
+      const { error: storageError } = await supabaseClient.storage
+        .from("notes-bucket")
+        .remove([storagePath]);
+      if (storageError) throw storageError;
+    }
+
+    const { error: databaseError } = await supabaseClient
+      .from("notes")
+      .delete()
+      .eq("id", note.id);
+    if (databaseError) throw databaseError;
+
+    card.remove();
+    updateNotesCount();
+  } catch (error) {
+    console.error("Unable to delete note.", error);
+    window.alert(error.message || "Unable to delete note.");
+    deleteButton.disabled = false;
+  }
 }
 
 async function fetchNotes() {
@@ -400,8 +564,266 @@ async function fetchNotes() {
     return;
   }
 
-  notesContainer.replaceChildren(...notes.map(renderNoteCard));
-  updateNotesCount();
+  allNotes = notes;
+  renderNotes();
+}
+
+function addPollOptionInput(value = "") {
+  const optionsContainer = document.getElementById("poll-option-inputs");
+  if (optionsContainer.children.length >= 4) return;
+
+  const row = document.createElement("div");
+  const input = document.createElement("input");
+  const removeButton = document.createElement("button");
+  row.className = "poll-option-row";
+  input.type = "text";
+  input.name = "pollOption";
+  input.className = "poll-option-input";
+  input.placeholder = `Option ${optionsContainer.children.length + 1}`;
+  input.value = value;
+  input.required = true;
+  removeButton.type = "button";
+  removeButton.className = "button button-outline remove-poll-option";
+  removeButton.textContent = "Remove";
+  removeButton.addEventListener("click", () => {
+    if (optionsContainer.children.length <= 2) return;
+    row.remove();
+    updatePollOptionControls();
+  });
+  row.append(input, removeButton);
+  optionsContainer.append(row);
+  updatePollOptionControls();
+}
+
+function updatePollOptionControls() {
+  const optionsContainer = document.getElementById("poll-option-inputs");
+  const addButton = document.getElementById("add-poll-option");
+  const optionRows = [...optionsContainer.querySelectorAll(".poll-option-row")];
+  addButton.disabled = optionRows.length >= 4;
+  optionRows.forEach((row) => {
+    row.querySelector(".remove-poll-option").disabled = optionRows.length <= 2;
+  });
+}
+
+function initializePollCreator() {
+  const optionsContainer = document.getElementById("poll-option-inputs");
+  if (!optionsContainer || optionsContainer.children.length) return;
+  addPollOptionInput();
+  addPollOptionInput();
+  document.getElementById("add-poll-option").addEventListener("click", () => addPollOptionInput());
+
+  document.getElementById("poll-create-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (!isLoggedIn || !activeSession) {
+      window.alert("Please login to create a poll.");
+      return;
+    }
+
+    const form = event.currentTarget;
+    const submitButton = form.querySelector("button[type='submit']");
+    const question = document.getElementById("poll-question-input").value.trim();
+    const options = [...optionsContainer.querySelectorAll(".poll-option-input")]
+      .map((input) => input.value.trim())
+      .filter(Boolean);
+    if (options.length < 2 || options.length > 4) {
+      showMessage(document.getElementById("poll-create-message"), "A poll needs 2 to 4 options.", true);
+      return;
+    }
+
+    submitButton.disabled = true;
+    try {
+      const { data: poll, error: pollError } = await supabaseClient
+        .from("polls")
+        .insert({ question })
+        .select("poll_id")
+        .single();
+      if (pollError) throw pollError;
+
+      const { error: optionsError } = await supabaseClient
+        .from("poll_options")
+        .insert(options.map((optionText) => ({ poll_id: poll.poll_id, option_text: optionText, vote_count: 0 })));
+      if (optionsError) {
+        await supabaseClient.from("polls").delete().eq("poll_id", poll.poll_id);
+        throw optionsError;
+      }
+
+      form.reset();
+      optionsContainer.replaceChildren();
+      addPollOptionInput();
+      addPollOptionInput();
+      showMessage(document.getElementById("poll-create-message"), "Poll created.");
+      await fetchPolls();
+    } catch (error) {
+      console.error("Unable to create poll.", error);
+      showMessage(document.getElementById("poll-create-message"), error.message || "Unable to create poll.", true);
+    } finally {
+      submitButton.disabled = false;
+      updateUIState(isLoggedIn);
+    }
+  });
+}
+
+function renderPollCard(poll, options, userVote) {
+  const card = document.createElement("article");
+  const question = document.createElement("h4");
+  card.className = "poll-card";
+  question.textContent = poll.question || poll.question_text || "Poll";
+  card.append(question);
+
+  if (userVote) {
+    const results = document.createElement("div");
+    results.className = "poll-results";
+    const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
+    options.forEach((option) => {
+      const row = document.createElement("div");
+      const metadata = document.createElement("div");
+      const label = document.createElement("strong");
+      const count = document.createElement("span");
+      const track = document.createElement("div");
+      const fill = document.createElement("div");
+      const votes = Number(option.vote_count || 0);
+      const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
+      row.className = `poll-result-row${String(userVote.option_id) === String(option.option_id) ? " is-voted" : ""}`;
+      metadata.className = "poll-result-meta";
+      label.textContent = option.option_text || option.text || "Option";
+      count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
+      track.className = "poll-result-track";
+      fill.className = "poll-result-fill";
+      fill.style.width = "0%";
+      requestAnimationFrame(() => { fill.style.width = `${percentage}%`; });
+      track.append(fill);
+      metadata.append(label, count);
+      row.append(metadata, track);
+      results.append(row);
+    });
+    card.append(results);
+    return card;
+  }
+
+  const optionsForm = document.createElement("form");
+  const choices = document.createElement("div");
+  const voteButton = document.createElement("button");
+  optionsForm.className = "poll-vote-form";
+  choices.className = "poll-vote-options";
+  options.forEach((option, index) => {
+    const label = document.createElement("label");
+    const input = document.createElement("input");
+    const optionText = document.createElement("span");
+    label.className = "poll-vote-option";
+    input.type = "radio";
+    input.name = `poll-choice-${poll.poll_id}`;
+    input.value = option.option_id;
+    input.required = true;
+    input.disabled = !isLoggedIn;
+    optionText.textContent = option.option_text || option.text || `Option ${index + 1}`;
+    label.append(input, optionText);
+    choices.append(label);
+  });
+  voteButton.className = "button button-primary";
+  voteButton.type = "submit";
+  voteButton.textContent = "Vote";
+  voteButton.disabled = !isLoggedIn;
+  voteButton.title = isLoggedIn ? "Submit your vote" : "Log in to vote";
+  optionsForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const selected = choices.querySelector("input:checked");
+    if (selected) void voteInPoll(poll, selected.value, voteButton);
+  });
+  optionsForm.append(choices, voteButton);
+  card.append(optionsForm);
+  return card;
+}
+
+async function fetchPolls() {
+  const pollList = document.getElementById("polls-list");
+  const { data: polls, error: pollsError } = await supabaseClient
+    .from("polls")
+    .select("*")
+    .order("created_at", { ascending: false });
+  if (pollsError) {
+    console.error("Unable to fetch polls.", pollsError);
+    showMessage(document.getElementById("poll-create-message"), "Unable to load polls.", true);
+    return;
+  }
+  if (!polls.length) {
+    pollList.replaceChildren();
+    return;
+  }
+
+  const pollIds = polls.map((poll) => poll.poll_id);
+  const { data: options, error: optionsError } = await supabaseClient
+    .from("poll_options")
+    .select("*")
+    .in("poll_id", pollIds);
+  if (optionsError) {
+    console.error("Unable to fetch poll options.", optionsError);
+    return;
+  }
+
+  let votes = [];
+  const rollNo = activeSession?.rollNo;
+  if (isLoggedIn && rollNo && rollNo !== "-") {
+    const { data: userVotes, error: votesError } = await supabaseClient
+      .from("poll_votes")
+      .select("poll_id, option_id")
+      .eq("roll_no", rollNo)
+      .in("poll_id", pollIds);
+    if (votesError) console.error("Unable to fetch poll votes.", votesError);
+    else votes = userVotes;
+  }
+
+  pollList.replaceChildren(...polls.map((poll) => renderPollCard(
+    poll,
+    options.filter((option) => String(option.poll_id) === String(poll.poll_id)),
+    votes.find((vote) => String(vote.poll_id) === String(poll.poll_id))
+  )));
+}
+
+async function voteInPoll(poll, optionId, voteButton) {
+  const rollNo = activeSession?.rollNo;
+  if (!isLoggedIn || !rollNo || rollNo === "-") {
+    window.alert("Please log in with your Roll Number to vote.");
+    return;
+  }
+  voteButton.disabled = true;
+  let voteRecorded = false;
+  try {
+    const { error: voteError } = await supabaseClient
+      .from("poll_votes")
+      .insert({ poll_id: poll.poll_id, roll_no: rollNo, option_id: optionId });
+    if (voteError) throw voteError;
+    voteRecorded = true;
+
+    const { data: option, error: optionError } = await supabaseClient
+      .from("poll_options")
+      .select("vote_count")
+      .eq("option_id", optionId)
+      .single();
+    if (optionError) throw optionError;
+
+    const { error: updateError } = await supabaseClient
+      .from("poll_options")
+      .update({ vote_count: Number(option.vote_count || 0) + 1 })
+      .eq("option_id", optionId);
+    if (updateError) throw updateError;
+    await fetchPolls();
+  } catch (error) {
+    console.error("Unable to submit poll vote.", error);
+    window.alert(error.message || "Unable to submit your vote.");
+    if (voteRecorded) await fetchPolls();
+    else voteButton.disabled = false;
+  }
+}
+
+function subscribeToPollChanges() {
+  if (realtimePollsChannel) return realtimePollsChannel;
+  realtimePollsChannel = supabaseClient
+    .channel("realtime-polls")
+    .on("postgres_changes", { event: "*", schema: "public", table: "poll_options" }, () => fetchPolls())
+    .subscribe((status) => {
+      if (status === "CHANNEL_ERROR") console.error("Unable to subscribe to poll updates.");
+    });
+  return realtimePollsChannel;
 }
 
 async function syncAdminDriveFolder() {
@@ -614,10 +1036,17 @@ nameForm.addEventListener("submit", async (event) => {
   const submitButton = nameForm.querySelector("button[type='submit']");
   const rollNo = onboardingAccess.rollNo;
   let updateErrorAlerted = false;
+  let onboardingComplete = false;
   submitButton.disabled = true;
   showMessage(nameMessage, "Saving your profile...");
 
   try {
+    if (await isStudentNameTaken(customName, rollNo)) {
+      window.alert("This name is already in use. Please choose a different display name.");
+      showMessage(nameMessage, "Choose a different display name.", true);
+      return;
+    }
+
     const { data, error } = await supabaseClient
       .from("Credentials")
       .update({ student_name: customName })
@@ -642,6 +1071,7 @@ nameForm.addEventListener("submit", async (event) => {
     sessionStorage.setItem("classPortal.activeSession", JSON.stringify(session));
     nameForm.reset();
     nameForm.hidden = true;
+    onboardingComplete = true;
     await showApp(session);
   } catch (error) {
     console.error("Unable to complete onboarding profile setup.", error);
@@ -650,8 +1080,10 @@ nameForm.addEventListener("submit", async (event) => {
       window.alert(error.message || "We couldn't save your name. Please try signing in again.");
     }
   } finally {
-    loginModal.hidden = true;
-    appView.hidden = !activeSession;
+    if (onboardingComplete) {
+      loginModal.hidden = true;
+      appView.hidden = false;
+    }
     submitButton.disabled = false;
   }
 });
@@ -681,6 +1113,12 @@ changeNameForm.addEventListener("submit", async (event) => {
   const submitButton = changeNameForm.querySelector("button[type='submit']");
   submitButton.disabled = true;
   try {
+    if (await isStudentNameTaken(customName, activeSession.rollNo)) {
+      window.alert("This name is already in use. Please choose a different display name.");
+      showMessage(message, "Choose a different display name.", true);
+      return;
+    }
+
     const { error } = await supabaseClient
       .from("Credentials")
       .update({ student_name: customName })
@@ -705,6 +1143,7 @@ changeNameForm.addEventListener("submit", async (event) => {
 
 document.getElementById("logout-button").addEventListener("click", () => {
   void releaseActiveSession();
+  void supabaseClient.auth.signOut();
   activeSession = null;
   isAdmin = false;
   onboardingAuthUser = null;
@@ -796,6 +1235,190 @@ document.getElementById("question-form").addEventListener("submit", async (event
   submitButton.disabled = false;
 });
 
+async function loadGooglePicker() {
+  if (!window.gapi) throw new Error("Google API script is unavailable.");
+  await new Promise((resolve, reject) => {
+    window.gapi.load("picker", {
+      callback: resolve,
+      onerror: () => reject(new Error("Google Picker could not be loaded.")),
+      timeout: 10000,
+      ontimeout: () => reject(new Error("Google Picker load timed out."))
+    });
+  });
+}
+
+async function savePickedDrivePdf(file) {
+  if (!file?.id || !file.name) {
+    window.alert("Google Drive did not provide the selected file details.");
+    return;
+  }
+  if (file.mimeType && file.mimeType !== "application/pdf") {
+    window.alert("Please select a PDF file only.");
+    return;
+  }
+
+  const titleInput = document.getElementById("note-title-input");
+  const title = titleInput.value.trim();
+  const subject = document.getElementById("note-category-input").value;
+  if (!title) {
+    window.alert("Enter a Note Title before selecting a Google Drive PDF.");
+    titleInput.focus();
+    return;
+  }
+  if (!subject) {
+    window.alert("Choose a subject before selecting a Google Drive PDF.");
+    document.getElementById("note-category-input").focus();
+    return;
+  }
+  const fileUrl = file.embedUrl || file.webViewLink || file.url || `https://drive.google.com/file/d/${file.id}/view`;
+  const browseButton = document.getElementById("browse-drive-button");
+  const selectionName = document.getElementById("drive-selection-name");
+  const uploaderName = activeSession?.name || sessionStorage.getItem("customName") || "Admin";
+  if (browseButton) browseButton.disabled = true;
+  showMessage(document.getElementById("upload-message"), "Saving selected PDF...");
+
+  try {
+    const { error } = await supabaseClient
+      .from("notes")
+      .insert({
+        title,
+        subject,
+        file_url: fileUrl,
+        uploaded_by: uploaderName,
+        uploader_role: "admin"
+      });
+    if (error) throw error;
+
+    if (selectionName) {
+      selectionName.textContent = `Selected: ${title}`;
+      selectionName.hidden = false;
+    }
+    document.getElementById("note-title-input").value = "";
+    showMessage(document.getElementById("upload-message"), "Drive PDF added to Class Notes.");
+    await fetchNotes();
+  } catch (error) {
+    console.error("Unable to save selected Drive PDF.", error);
+    window.alert(`Database Error: ${error.message || "Unable to save selected PDF."}`);
+    showMessage(document.getElementById("upload-message"), error.message || "Unable to save selected PDF.", true);
+  } finally {
+    if (browseButton) browseButton.disabled = false;
+  }
+}
+
+async function openGoogleDrivePicker() {
+  if (!isAdmin) {
+    window.alert("Only Admin users can import notes from Google Drive.");
+    return;
+  }
+  if (!googleAccessToken) {
+    window.alert("Google Drive access is unavailable. Sign in again and grant Drive read access.");
+    return;
+  }
+
+  const browseButton = document.getElementById("browse-drive-button");
+  if (browseButton) browseButton.disabled = true;
+  try {
+    await loadGooglePicker();
+    const pickerApi = window.google.picker;
+    const pdfView = new pickerApi.DocsView(pickerApi.ViewId.DOCS);
+    pdfView.setMimeTypes("application/pdf");
+    pdfView.setIncludeFolders(false);
+
+    const picker = new pickerApi.PickerBuilder()
+      .setDeveloperKey(DRIVE_API_KEY)
+      .setOAuthToken(googleAccessToken)
+      .addView(pdfView)
+      .setCallback((data) => {
+        if (data.action === pickerApi.Action.PICKED) {
+          void savePickedDrivePdf(data.docs?.[0]);
+        }
+      })
+      .build();
+    picker.setVisible(true);
+  } catch (error) {
+    console.error("Unable to open Google Drive Picker.", error);
+    window.alert(error.message || "Unable to open Google Drive Picker.");
+  } finally {
+    if (browseButton) browseButton.disabled = false;
+  }
+}
+
+document.getElementById("browse-drive-button").addEventListener("click", openGoogleDrivePicker);
+
+async function uploadPdfWithProgress(file, filePath) {
+  const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
+  if (sessionError) throw sessionError;
+  if (!session?.access_token) throw new Error("Your session expired. Please sign in again.");
+  if (noteUploadCancelRequested) {
+    const canceledError = new Error("Upload canceled.");
+    canceledError.name = "AbortError";
+    throw canceledError;
+  }
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    activeNoteUploadXhr = xhr;
+    const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
+    xhr.open("POST", `${SUPABASE_PROJECT_URL}/storage/v1/object/notes-bucket/${encodedPath}`);
+    xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
+    xhr.setRequestHeader("Authorization", `Bearer ${session.access_token}`);
+    xhr.setRequestHeader("Content-Type", "application/pdf");
+    xhr.setRequestHeader("x-upsert", "false");
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (!event.lengthComputable) return;
+      const percent = Math.round((event.loaded / event.total) * 100);
+      document.getElementById("upload-progress").value = percent;
+      document.getElementById("upload-progress-label").textContent = `${percent}%`;
+    });
+
+    xhr.onload = () => {
+      activeNoteUploadXhr = null;
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      let message = xhr.statusText || "Storage upload failed.";
+      try {
+        message = JSON.parse(xhr.responseText).message || message;
+      } catch (error) {
+        // Keep the HTTP status message when the response is not JSON.
+      }
+      reject(new Error(message));
+    };
+    xhr.onerror = () => {
+      activeNoteUploadXhr = null;
+      reject(new Error("Network error during PDF upload."));
+    };
+    xhr.onabort = () => {
+      activeNoteUploadXhr = null;
+      const error = new Error("Upload canceled.");
+      error.name = "AbortError";
+      reject(error);
+    };
+    xhr.send(file);
+  });
+}
+
+document.getElementById("cancel-upload-button").addEventListener("click", () => {
+  noteUploadCancelRequested = true;
+  if (activeNoteUploadXhr) activeNoteUploadXhr.abort();
+});
+
+document.getElementById("note-file-input").addEventListener("change", (event) => {
+  const file = event.currentTarget.files[0];
+  if (!file) return;
+  if (file.type !== "application/pdf") {
+    window.alert("Please select a PDF file only.");
+    event.currentTarget.value = "";
+    return;
+  }
+  if (file.size > MAX_PDF_SIZE) {
+    window.alert("File size exceeds the 10 MB limit. Please upload a smaller PDF.");
+    event.currentTarget.value = "";
+  }
+});
+
 document.getElementById("upload-notes-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!isLoggedIn) {
@@ -807,40 +1430,60 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
   const uploadButton = form.querySelector("button[type='submit']");
   const source = form.querySelector("input[name='uploadSource']:checked")?.value;
   const title = document.getElementById("note-title-input").value.trim();
+  const subject = document.getElementById("note-category-input").value;
   const file = document.getElementById("note-file-input").files[0];
-  const driveLink = document.getElementById("drive-link-input").value.trim();
   const uploaderRole = isAdmin ? "admin" : "student";
+  const uploaderName = activeSession?.name || sessionStorage.getItem("customName") || "Student";
   const uploaderId = activeSession?.authUserId || onboardingAuthUser?.id;
+
+  if (source === "drive") {
+    window.alert("Choose a PDF with Browse Google Drive. It will be saved when selected.");
+    return;
+  }
 
   if (source === "local" && (!file || file.type !== "application/pdf")) {
     window.alert("Please select a PDF file only.");
     return;
   }
-  if (source === "drive" && !driveLink) {
-    window.alert("Please enter a Google Drive link.");
+  if (!subject) {
+    window.alert("Choose a subject for this note.");
+    document.getElementById("note-category-input").focus();
     return;
   }
-  if (uploaderRole === "admin" && source !== "drive") {
-    window.alert("Admins must provide a direct Google Drive link.");
+  if (source === "local" && file.size > MAX_PDF_SIZE) {
+    window.alert("File size exceeds the 10 MB limit. Please upload a smaller PDF.");
+    document.getElementById("note-file-input").value = "";
+    return;
+  }
+  if (uploaderRole === "admin") {
+    window.alert("Admins should import PDFs using Browse Google Drive.");
     return;
   }
 
   uploadButton.disabled = true;
   showMessage(document.getElementById("upload-message"), "Uploading note...");
+  const progressContainer = document.getElementById("upload-progress-container");
+  const progress = document.getElementById("upload-progress");
+  const progressLabel = document.getElementById("upload-progress-label");
+  const cancelButton = document.getElementById("cancel-upload-button");
+  progress.value = 0;
+  progressLabel.textContent = "0%";
+  progressContainer.hidden = false;
+  cancelButton.hidden = false;
+  noteUploadCancelRequested = false;
   try {
-    let fileUrl = driveLink;
+    let fileUrl;
     if (uploaderRole === "student") {
       const filePath = `${uploaderId || "student"}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
       try {
-        const { error: uploadError } = await supabaseClient.storage
-          .from("notes-bucket")
-          .upload(filePath, file, { contentType: "application/pdf", upsert: false });
-        if (uploadError) {
-          console.error("Storage Upload Error:", uploadError);
-          window.alert(`Storage Upload Error: ${uploadError.message}`);
+        await uploadPdfWithProgress(file, filePath);
+        progressContainer.hidden = true;
+        cancelButton.hidden = true;
+      } catch (error) {
+        if (error.name === "AbortError") {
+          window.alert("Upload canceled.");
           return;
         }
-      } catch (error) {
         console.error("Storage Upload Error:", error);
         window.alert(`Storage Upload Error: ${error.message}`);
         return;
@@ -852,7 +1495,7 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     try {
       const { error: insertError } = await supabaseClient
         .from("notes")
-        .insert({ title, file_url: fileUrl, uploaded_by: uploaderId, uploader_role: uploaderRole });
+        .insert({ title, subject, file_url: fileUrl, uploaded_by: uploaderName, uploader_role: uploaderRole });
       if (insertError) {
         console.error("Database Error:", insertError);
         window.alert(`Database Error: ${insertError.message}`);
@@ -865,7 +1508,6 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     }
 
     form.reset();
-    document.getElementById("drive-link-input").hidden = true;
     document.getElementById("note-file-input").hidden = false;
     showMessage(document.getElementById("upload-message"), "Note uploaded successfully.");
     await fetchNotes();
@@ -874,28 +1516,41 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     showMessage(document.getElementById("upload-message"), error.message || "Unable to upload note.", true);
   } finally {
     uploadButton.disabled = false;
+    progress.value = 0;
+    progressLabel.textContent = "0%";
+    progressContainer.hidden = true;
+    cancelButton.hidden = true;
+    activeNoteUploadXhr = null;
+    noteUploadCancelRequested = false;
   }
 });
 
 const uploadForm = document.getElementById("upload-notes-form");
 const noteFileInput = document.getElementById("note-file-input");
-const driveLinkInput = document.getElementById("drive-link-input");
+const browseDriveButton = document.getElementById("browse-drive-button");
+const driveSelectionName = document.getElementById("drive-selection-name");
+const uploadNotesButton = document.getElementById("upload-notes-button");
 document.querySelectorAll("input[name='uploadSource']").forEach((sourceOption) => {
   sourceOption.addEventListener("change", () => {
     const isDriveSource = sourceOption.value === "drive" && sourceOption.checked;
-    driveLinkInput.hidden = !isDriveSource;
-    driveLinkInput.required = isDriveSource;
     noteFileInput.hidden = isDriveSource;
     noteFileInput.required = !isDriveSource;
+    browseDriveButton.hidden = !isDriveSource || !isAdmin;
+    driveSelectionName.hidden = !isDriveSource || !driveSelectionName.textContent;
+    uploadNotesButton.hidden = isDriveSource;
   });
 });
 
-document.querySelectorAll(".subject-tab").forEach((tab) => {
-  tab.addEventListener("click", () => {
-    activeSubject = tab.dataset.subject;
-    document.querySelectorAll(".subject-tab").forEach((item) => item.classList.toggle("is-active", item === tab));
-    renderFilteredQuestions();
-  });
+populateSubjectOptions();
+
+document.getElementById("question-subject-filter").addEventListener("change", (event) => {
+  activeSubject = event.target.value;
+  renderFilteredQuestions();
+});
+
+document.getElementById("notes-filter").addEventListener("change", (event) => {
+  activeNotesSubject = event.target.value;
+  renderNotes();
 });
 
 document.getElementById("question-search").addEventListener("input", (event) => {
@@ -910,26 +1565,13 @@ async function initApp() {
 }
 
 async function initializeApp() {
-  const savedSession = sessionStorage.getItem("classPortal.activeSession");
-  if (savedSession) {
-    try {
-      const restoredSession = JSON.parse(savedSession);
-      await showApp(restoredSession);
-      updateUIState(true);
-    } catch (error) {
-      console.error("Unable to restore saved session.", error);
-      sessionStorage.removeItem("classPortal.activeSession");
-      updateUIState(false);
-    }
-  } else {
-    updateUIState(false);
-  }
-
+  let authSession;
   try {
     const { data: { session } } = await supabaseClient.auth.getSession();
-    await handleAuthSession(session);
+    authSession = session;
   } catch (error) {
     console.error("Unable to restore Supabase session.", error);
+    showGoogleLoginStep();
   }
 
   if (!authStateSubscription) {
@@ -937,12 +1579,39 @@ async function initializeApp() {
       void handleAuthSession(session);
     });
   }
+
+  if (!authSession) {
+    showGoogleLoginStep();
+    return;
+  }
+
+  onboardingAuthUser = authSession.user;
+  googleAccessToken = authSession.provider_token || sessionStorage.getItem("googleProviderToken") || null;
+  if (authSession.provider_token) sessionStorage.setItem("googleProviderToken", authSession.provider_token);
+  isAdmin = onboardingAuthUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const restoredSession = await restoreOnboardedSession(authSession);
+  if (restoredSession?.securityConflict) {
+    await supabaseClient.auth.signOut();
+    localStorage.clear();
+    window.alert("Session active on another device. Please log out there first.");
+    showGoogleLoginStep();
+    return;
+  }
+  if (restoredSession) {
+    await showApp(restoredSession);
+    updateUIState(true);
+  } else {
+    await handleAuthSession(authSession);
+  }
+
   subscribeToQuestionChanges();
   subscribeToAnswerChanges();
   subscribeToNoteChanges();
+  subscribeToPollChanges();
   await syncAdminDriveFolder();
   await fetchQuestions();
   await fetchNotes();
+  await fetchPolls();
   updateNotesCount();
 
   const notesList = document.getElementById("notes-list-container");
@@ -951,6 +1620,8 @@ async function initializeApp() {
     notesListObserver.observe(notesList, { childList: true });
   }
 }
+
+initializePollCreator();
 
 document.addEventListener("DOMContentLoaded", () => {
   void initApp();
