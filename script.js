@@ -5,6 +5,7 @@ const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON
 const DRIVE_FOLDER_ID = "1kvzcnMaijD6g06GT5loXUtJ1xom7N2t0";
 const DRIVE_API_KEY = "AIzaSyDL9mJG7q0JFRXSKNjLKIdYR4nyS8I5ZE0";
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
+const SESSION_INACTIVE_LIMIT_MS = 15 * 60 * 1000;
 const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
 const DEVICE_TOKEN = localStorage.getItem("device_token") || (() => {
   const token = globalThis.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -30,6 +31,7 @@ let notesListObserver = null;
 let driveSyncPromise = null;
 let activeNoteUploadXhr = null;
 let noteUploadCancelRequested = false;
+let sessionHeartbeat = null;
 
 const loginModal = document.getElementById("login-modal");
 const welcomePage = document.getElementById("welcome-page");
@@ -101,13 +103,66 @@ async function releaseActiveSession(session = activeSession) {
         "Content-Type": "application/json",
         Prefer: "return=minimal"
       },
-      body: JSON.stringify({ active_session_id: null }),
+      body: JSON.stringify({ active_session_id: null, is_logged_in: false, last_active: new Date().toISOString() }),
       keepalive: true
     });
     if (!response.ok) throw new Error(`Session release failed (${response.status}).`);
   } catch (error) {
     console.error("Unable to release the active roll number.", error);
   }
+}
+
+function isPreviousSessionStale(lastActive) {
+  if (!lastActive) return true;
+  const timestamp = Date.parse(lastActive);
+  return Number.isNaN(timestamp) || Date.now() - timestamp > SESSION_INACTIVE_LIMIT_MS;
+}
+
+async function claimCredentialSession(credential, { force = false } = {}) {
+  const previousToken = credential.active_session_id;
+  const previousSessionIsOurs = previousToken === DEVICE_TOKEN;
+  const hasOtherActiveSession = (previousToken && !previousSessionIsOurs) ||
+    (credential.is_logged_in && !previousSessionIsOurs);
+  const stale = isPreviousSessionStale(credential.last_active);
+
+  if (!force && hasOtherActiveSession && !stale) return false;
+
+  let update = supabaseClient
+    .from("Credentials")
+    .update({
+      active_session_id: DEVICE_TOKEN,
+      is_logged_in: true,
+      last_active: new Date().toISOString()
+    })
+    .eq("roll_no", credential.roll_no);
+
+  if (credential.code) update = update.eq("code", credential.code);
+  if (!force && previousToken && !previousSessionIsOurs && stale) {
+    update = update.eq("active_session_id", previousToken);
+    if (credential.last_active) update = update.lt("last_active", new Date(Date.now() - SESSION_INACTIVE_LIMIT_MS).toISOString());
+    else update = update.is("last_active", null);
+  } else if (!force) {
+    update = update.or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`);
+  }
+
+  const { data: claimedRows, error } = await update.select("roll_no");
+  if (error) throw error;
+  return Boolean(claimedRows?.length);
+}
+
+function startSessionHeartbeat() {
+  if (sessionHeartbeat) clearInterval(sessionHeartbeat);
+  sessionHeartbeat = setInterval(() => {
+    if (!activeSession?.rollNo || !isLoggedIn) return;
+    void supabaseClient
+      .from("Credentials")
+      .update({ last_active: new Date().toISOString(), is_logged_in: true })
+      .eq("roll_no", activeSession.rollNo)
+      .eq("active_session_id", DEVICE_TOKEN)
+      .then(({ error }) => {
+        if (error) console.error("Unable to refresh the active session timestamp.", error);
+      });
+  }, 60 * 1000);
 }
 
 function formatTimestamp(timestamp) {
@@ -195,6 +250,7 @@ async function showApp(session) {
   loginModal.hidden = true;
   appView.hidden = false;
   updateUIState(true);
+  startSessionHeartbeat();
   subscribeToQuestionChanges();
   subscribeToAnswerChanges();
   subscribeToNoteChanges();
@@ -217,7 +273,7 @@ async function restoreSavedSession() {
 
   const { data: credential, error } = await supabaseClient
     .from("Credentials")
-    .select("code, role, student_name, roll_no, active_session_id")
+    .select("code, role, student_name, roll_no, active_session_id, is_logged_in, last_active")
     .eq("roll_no", rollNo)
     .maybeSingle();
 
@@ -226,16 +282,7 @@ async function restoreSavedSession() {
     return null;
   }
   if (!credential) return null;
-  if (credential.active_session_id && credential.active_session_id !== DEVICE_TOKEN) return { securityConflict: true };
-
-  const { data: claimedRows, error: claimError } = await supabaseClient
-    .from("Credentials")
-    .update({ active_session_id: DEVICE_TOKEN })
-    .eq("roll_no", rollNo)
-    .or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`)
-    .select("roll_no");
-  if (claimError) throw claimError;
-  if (!claimedRows?.length) return { securityConflict: true };
+  if (!await claimCredentialSession(credential)) return { securityConflict: true };
 
   const session = {
     name: titleCaseName(credential.student_name?.trim() || `Student ${credential.roll_no}`),
@@ -247,29 +294,18 @@ async function restoreSavedSession() {
   return session;
 }
 
-async function login(rollNo, accessCode) {
+async function login(rollNo, accessCode, force = false) {
   const normalizedCode = accessCode.trim().toUpperCase();
   const { data: accessCodeRecord, error } = await supabaseClient
     .from("Credentials")
-    .select("code, role, student_name, roll_no, active_session_id")
+    .select("code, role, student_name, roll_no, active_session_id, is_logged_in, last_active")
     .eq("code", normalizedCode)
     .eq("roll_no", rollNo)
     .maybeSingle();
 
   if (error) throw error;
   if (!accessCodeRecord) return null;
-  if (accessCodeRecord.active_session_id && accessCodeRecord.active_session_id !== DEVICE_TOKEN) return { occupied: true };
-
-  const { data: claimedRows, error: claimError } = await supabaseClient
-    .from("Credentials")
-    .update({ active_session_id: DEVICE_TOKEN })
-    .eq("code", accessCodeRecord.code)
-    .eq("roll_no", rollNo)
-    .or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`)
-    .select("code");
-
-  if (claimError) throw claimError;
-  if (!claimedRows?.length) return { occupied: true };
+  if (!await claimCredentialSession(accessCodeRecord, { force })) return { occupied: true };
 
   return {
     name: titleCaseName(accessCodeRecord.student_name?.trim() || `Student ${accessCodeRecord.roll_no || rollNo}`),
@@ -945,8 +981,27 @@ loginForm.addEventListener("submit", async (event) => {
   try {
     const session = await login(rollNo, formData.get("accessCode"));
     if (session?.occupied) {
-      window.alert("This Roll Number is already logged in on another device.");
       showMessage(loginMessage, "This Roll Number is already logged in on another device.", true);
+      const forceButton = document.createElement("button");
+      forceButton.type = "button";
+      forceButton.className = "button button-outline force-session-button";
+      forceButton.textContent = "Force Logout Other Device";
+      forceButton.addEventListener("click", async () => {
+        forceButton.disabled = true;
+        try {
+          const forcedSession = await login(rollNo, formData.get("accessCode"), true);
+          if (!forcedSession || forcedSession.occupied) throw new Error("Unable to claim this Roll Number.");
+          localStorage.setItem("classPortal.activeSession", JSON.stringify(forcedSession));
+          loginForm.reset();
+          showMessage(loginMessage, "");
+          await showApp(forcedSession);
+        } catch (error) {
+          console.error("Unable to override the previous Roll Number session.", error);
+          window.alert(error.message || "Unable to log out the other device.");
+          forceButton.disabled = false;
+        }
+      });
+      loginMessage.append(document.createTextNode(" "), forceButton);
       return;
     }
     if (!session) {
@@ -1024,6 +1079,8 @@ changeNameForm.addEventListener("submit", async (event) => {
 
 document.getElementById("logout-button").addEventListener("click", () => {
   void releaseActiveSession();
+  if (sessionHeartbeat) clearInterval(sessionHeartbeat);
+  sessionHeartbeat = null;
   activeSession = null;
   isAdmin = false;
   updateUIState(false);

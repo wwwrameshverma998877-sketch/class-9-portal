@@ -51,6 +51,7 @@ input:focus, select:focus, textarea:focus { border-color: var(--teal); box-shado
 .button-outline { padding: 10px 16px; color: var(--teal); border: 1px solid #afd0cb; background: transparent; white-space: nowrap; }
 .button-full { width: 100%; display: flex; justify-content: space-between; align-items: center; }
 .form-message { min-height: 18px; margin: 10px 0 8px; color: #c05252; font-size: 12px; }
+.force-session-button { display: block; margin-top: 10px; padding: 9px 12px; color: #9b443b; border: 1px solid #e6b4ad; background: #fff8f7; font-size: 11px; }
 .demo-hint { margin: 22px 0 0; color: var(--muted); font-size: 12px; text-align: center; }
 .demo-hint strong { color: var(--teal); }
 .app-shell { min-height: 100vh; animation: appear .55s ease both; }
