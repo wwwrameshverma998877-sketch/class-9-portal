@@ -1,15 +1,9 @@
 const SUPABASE_URL = "https://jscgedmfzdxpbtmokazf.supabase.co/rest/v1/";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzY2dlZG1memR4cGJ0bW9rYXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTYwNjAsImV4cCI6MjEwNDc5MjA2MH0.bGFzIlqtQYfByOC9dGNEihIhX-jfX72g7tZ8-wZeTeg";
 const SUPABASE_PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "");
-const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY, {
-  auth: {
-    persistSession: true,
-    autoRefreshToken: true
-  }
-});
+const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
 const DRIVE_FOLDER_ID = "1kvzcnMaijD6g06GT5loXUtJ1xom7N2t0";
 const DRIVE_API_KEY = "AIzaSyDL9mJG7q0JFRXSKNjLKIdYR4nyS8I5ZE0";
-const ADMIN_EMAIL = "www.rameshverma998877@gmail.com";
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
 const DEVICE_TOKEN = localStorage.getItem("device_token") || (() => {
@@ -21,20 +15,16 @@ const DEVICE_TOKEN = localStorage.getItem("device_token") || (() => {
 let activeSession = null;
 let isLoggedIn = false;
 let isAdmin = false;
-let googleAccessToken = null;
-let onboardingAuthUser = null;
-let onboardingAccess = null;
 let allQuestions = [];
 let allNotes = [];
 let activeSubject = "All";
 let activeNotesSubject = "All";
 let searchTerm = "";
-const locallyPostedAnswerIds = new Set();
+let locallyPostedAnswerIds = new Set();
 let realtimeQuestionsChannel = null;
 let realtimeNotesChannel = null;
 let realtimeAnswersChannel = null;
 let realtimePollsChannel = null;
-let authStateSubscription = null;
 let initPromise = null;
 let notesListObserver = null;
 let driveSyncPromise = null;
@@ -42,9 +32,9 @@ let activeNoteUploadXhr = null;
 let noteUploadCancelRequested = false;
 
 const loginModal = document.getElementById("login-modal");
+const welcomePage = document.getElementById("welcome-page");
 const appView = document.getElementById("app-view");
-const accessForm = document.getElementById("access-form");
-const nameForm = document.getElementById("name-form");
+const loginForm = document.getElementById("login-form");
 const changeNameModal = document.getElementById("change-name-modal");
 const changeNameForm = document.getElementById("change-name-form");
 const loginMessage = document.getElementById("login-message");
@@ -54,88 +44,42 @@ const questionSection = document.querySelector(".ask-section");
 function updateUIState(loggedIn) {
   isLoggedIn = loggedIn;
   if (adminPanel) adminPanel.hidden = !isAdmin;
-  document.querySelectorAll(".reply-button").forEach((button) => {
-    button.disabled = !loggedIn;
-    button.textContent = loggedIn ? "Post Reply" : "Login to reply...";
-    button.title = loggedIn ? "Post a reply" : "Please login with Google to participate.";
-  });
-  document.querySelectorAll(".reply-form input").forEach((input) => {
-    input.disabled = !loggedIn;
-    input.placeholder = loggedIn ? "Write an answer..." : "Login to reply...";
+  document.querySelectorAll(".reply-button, .reply-form input").forEach((control) => {
+    control.disabled = !loggedIn;
+    if (control.matches(".reply-button")) {
+      control.textContent = loggedIn ? "Post Reply" : "Login to reply...";
+      control.title = loggedIn ? "Post a reply" : "Log in to participate.";
+    } else {
+      control.placeholder = loggedIn ? "Write an answer..." : "Login to reply...";
+    }
   });
   const uploadForm = document.getElementById("upload-notes-form");
   if (uploadForm) {
     uploadForm.querySelectorAll("input, button").forEach((control) => {
       control.disabled = !loggedIn;
-      control.title = loggedIn ? "Upload notes or documents" : "Please login with Google to participate.";
+      control.title = loggedIn ? "Upload notes or documents" : "Log in to participate.";
     });
-    const driveSourceOption = document.getElementById("drive-source-option");
-    if (driveSourceOption) driveSourceOption.disabled = !loggedIn || !isAdmin;
-    const browseDriveButton = document.getElementById("browse-drive-button");
-    if (browseDriveButton) browseDriveButton.disabled = !loggedIn || !isAdmin;
+    const driveSource = document.getElementById("drive-source-option");
+    const driveLink = document.getElementById("drive-link-input");
+    if (driveSource) driveSource.disabled = !loggedIn || !isAdmin;
+    if (driveLink) driveLink.disabled = !loggedIn || !isAdmin;
   }
   const postQuestionButton = document.getElementById("post-question-button");
-  if (postQuestionButton) {
-    postQuestionButton.disabled = !loggedIn;
-    postQuestionButton.title = loggedIn ? "Post a new question" : "Please login with Google to participate.";
-  }
+  if (postQuestionButton) postQuestionButton.disabled = !loggedIn;
   document.querySelectorAll("#poll-create-form input, #poll-create-form button").forEach((control) => {
     control.disabled = !loggedIn;
   });
-  document.getElementById("nav-login-button").hidden = loggedIn;
-  document.querySelector(".user-menu").hidden = !loggedIn;
+  const profile = document.getElementById("user-profile");
+  if (profile) profile.hidden = !loggedIn;
 }
 
-async function signInWithGoogle() {
-  const { error } = await supabaseClient.auth.signInWithOAuth({
-    provider: "google",
-    options: {
-      scopes: "https://www.googleapis.com/auth/drive.readonly"
-    }
-  });
-  if (error) {
-    showMessage(loginMessage, "Unable to start Google sign-in.", true);
-    console.error(error);
-  }
-}
-
-function showGoogleLoginStep() {
+function showWelcomePage() {
   activeSession = null;
-  onboardingAuthUser = null;
-  onboardingAccess = null;
   isAdmin = false;
   appView.hidden = true;
-  loginModal.hidden = false;
-  document.getElementById("onboarding-step-1").hidden = false;
-  accessForm.hidden = true;
-  nameForm.hidden = true;
-  document.getElementById("access-code").disabled = true;
-  document.getElementById("roll-no").disabled = true;
+  welcomePage.hidden = false;
+  loginModal.hidden = true;
   updateUIState(false);
-}
-
-async function handleAuthSession(authSession) {
-  if (!authSession) {
-    showGoogleLoginStep();
-    googleAccessToken = null;
-    sessionStorage.removeItem("googleProviderToken");
-    return;
-  }
-
-  onboardingAuthUser = authSession.user;
-  googleAccessToken = authSession.provider_token || sessionStorage.getItem("googleProviderToken") || googleAccessToken;
-  if (authSession.provider_token) sessionStorage.setItem("googleProviderToken", authSession.provider_token);
-  isAdmin = onboardingAuthUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  updateUIState(true);
-  if (adminPanel) adminPanel.hidden = !isAdmin;
-  if (activeSession?.authUserId === onboardingAuthUser.id) return;
-  appView.hidden = true;
-  loginModal.hidden = false;
-  document.getElementById("onboarding-step-1").hidden = true;
-  accessForm.hidden = false;
-  document.getElementById("access-code").disabled = false;
-  document.getElementById("roll-no").disabled = false;
-  showMessage(loginMessage, "");
 }
 
 function titleCaseName(name) {
@@ -146,7 +90,7 @@ function getRollNo(record) {
   return record.rollNo || record.std || record.studentClass || "-";
 }
 
-async function releaseActiveSession(session = activeSession || onboardingAccess) {
+async function releaseActiveSession(session = activeSession) {
   if (!session?.deviceToken || !session.rollNo || session.rollNo === "-") return;
   try {
     const response = await fetch(`${SUPABASE_URL}Credentials?roll_no=eq.${encodeURIComponent(session.rollNo)}&active_session_id=eq.${encodeURIComponent(session.deviceToken)}`, {
@@ -245,24 +189,30 @@ function renderUser(session) {
 
 async function showApp(session) {
   activeSession = session;
+  isAdmin = session.role?.toLowerCase() === "admin";
   renderUser(session);
+  welcomePage.hidden = true;
   loginModal.hidden = true;
   appView.hidden = false;
+  updateUIState(true);
+  subscribeToQuestionChanges();
+  subscribeToAnswerChanges();
+  subscribeToNoteChanges();
   subscribeToPollChanges();
   await Promise.all([renderCodes(), fetchQuestions(), fetchNotes(), fetchPolls()]);
 }
 
-async function restoreOnboardedSession(authSession) {
-  const savedSession = sessionStorage.getItem("classPortal.activeSession");
-  let storedSession = null;
+async function restoreSavedSession() {
+  const savedSession = localStorage.getItem("classPortal.activeSession");
+  let storedSession;
   try {
     storedSession = savedSession ? JSON.parse(savedSession) : null;
   } catch (error) {
     console.error("Unable to parse saved session.", error);
-    sessionStorage.removeItem("classPortal.activeSession");
+    localStorage.removeItem("classPortal.activeSession");
+    return null;
   }
-
-  const rollNo = storedSession?.rollNo || authSession.user.user_metadata?.roll_no;
+  const rollNo = storedSession?.rollNo;
   if (!rollNo) return null;
 
   const { data: credential, error } = await supabaseClient
@@ -272,28 +222,32 @@ async function restoreOnboardedSession(authSession) {
     .maybeSingle();
 
   if (error) {
-    console.error("Unable to restore the onboarded Credentials record.", error);
+    console.error("Unable to restore the Credentials session.", error);
     return null;
   }
-  if (!credential?.student_name?.trim()) return null;
-  if (credential.active_session_id && credential.active_session_id !== DEVICE_TOKEN) {
-    return { securityConflict: true };
-  }
+  if (!credential) return null;
+  if (credential.active_session_id && credential.active_session_id !== DEVICE_TOKEN) return { securityConflict: true };
+
+  const { data: claimedRows, error: claimError } = await supabaseClient
+    .from("Credentials")
+    .update({ active_session_id: DEVICE_TOKEN })
+    .eq("roll_no", rollNo)
+    .or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`)
+    .select("roll_no");
+  if (claimError) throw claimError;
+  if (!claimedRows?.length) return { securityConflict: true };
 
   const session = {
-    name: titleCaseName(credential.student_name),
-    code: credential.code,
+    name: titleCaseName(credential.student_name?.trim() || `Student ${credential.roll_no}`),
     role: credential.role || "student",
     rollNo: credential.roll_no,
-    authUserId: authSession.user.id,
     deviceToken: DEVICE_TOKEN
   };
-  sessionStorage.setItem("customName", credential.student_name);
-  sessionStorage.setItem("classPortal.activeSession", JSON.stringify(session));
+  localStorage.setItem("classPortal.activeSession", JSON.stringify(session));
   return session;
 }
 
-async function login(name, rollNo, accessCode, authUserId) {
+async function login(rollNo, accessCode) {
   const normalizedCode = accessCode.trim().toUpperCase();
   const { data: accessCodeRecord, error } = await supabaseClient
     .from("Credentials")
@@ -318,11 +272,9 @@ async function login(name, rollNo, accessCode, authUserId) {
   if (!claimedRows?.length) return { occupied: true };
 
   return {
-    name: accessCodeRecord.student_name?.trim() ? titleCaseName(accessCodeRecord.student_name) : "",
-    code: accessCodeRecord.code,
+    name: titleCaseName(accessCodeRecord.student_name?.trim() || `Student ${accessCodeRecord.roll_no || rollNo}`),
     role: accessCodeRecord.role || "student",
     rollNo: accessCodeRecord.roll_no || rollNo || "-",
-    authUserId,
     deviceToken: DEVICE_TOKEN
   };
 }
@@ -450,12 +402,12 @@ function renderReplySection(body, question) {
   replyButton.type = "submit";
   replyButton.textContent = isLoggedIn ? "Post Reply" : "Login to reply...";
   replyButton.disabled = !isLoggedIn;
-  replyButton.title = isLoggedIn ? "Post a reply" : "Please login with Google to participate.";
+  replyButton.title = isLoggedIn ? "Post a reply" : "Log in to participate.";
 
   replyForm.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!isLoggedIn) {
-      window.alert("Please login with Google to participate.");
+      window.alert("Please log in to participate.");
       return;
     }
     void postReply(questionId);
@@ -982,19 +934,16 @@ function subscribeToNoteChanges() {
   return realtimeNotesChannel;
 }
 
-accessForm.addEventListener("submit", async (event) => {
+loginForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  const submitButton = accessForm.querySelector("button[type='submit']");
-  const formData = new FormData(accessForm);
-  if (!onboardingAuthUser) {
-    showMessage(loginMessage, "Please sign in with Google first.", true);
-    return;
-  }
+  const submitButton = loginForm.querySelector("button[type='submit']");
+  const formData = new FormData(loginForm);
+  const rollNo = String(formData.get("rollNo") || "").trim();
   submitButton.disabled = true;
   showMessage(loginMessage, "Checking access...");
 
   try {
-    const session = await login("", formData.get("rollNo"), formData.get("accessCode"), onboardingAuthUser.id);
+    const session = await login(rollNo, formData.get("accessCode"));
     if (session?.occupied) {
       window.alert("This Roll Number is already logged in on another device.");
       showMessage(loginMessage, "This Roll Number is already logged in on another device.", true);
@@ -1004,92 +953,27 @@ accessForm.addEventListener("submit", async (event) => {
       showMessage(loginMessage, "That access code was not found.", true);
       return;
     }
-    onboardingAccess = session;
-    if (session.name?.trim()) {
-      sessionStorage.setItem("classPortal.activeSession", JSON.stringify(session));
-      accessForm.hidden = true;
-      loginModal.hidden = true;
-      await showApp(session);
-    } else {
-      accessForm.hidden = true;
-      nameForm.hidden = false;
-      document.getElementById("custom-name").focus();
-      showMessage(loginMessage, "");
-    }
+    localStorage.setItem("classPortal.activeSession", JSON.stringify(session));
+    loginForm.reset();
+    showMessage(loginMessage, "");
+    await showApp(session);
   } catch (error) {
-    showMessage(loginMessage, "Unable to connect to Supabase. Check your project settings.", true);
+    showMessage(loginMessage, error.message || "Unable to verify your Roll Number and Access Code.", true);
     console.error(error);
   } finally {
     submitButton.disabled = false;
   }
 });
 
-nameForm.addEventListener("submit", async (event) => {
-  event.preventDefault();
-  const nameMessage = document.getElementById("name-message");
-  const customName = new FormData(nameForm).get("customName").trim();
-  if (!customName || !onboardingAuthUser || !onboardingAccess) {
-    showMessage(nameMessage, "Enter a display name to continue.", true);
-    return;
-  }
-
-  const submitButton = nameForm.querySelector("button[type='submit']");
-  const rollNo = onboardingAccess.rollNo;
-  let updateErrorAlerted = false;
-  let onboardingComplete = false;
-  submitButton.disabled = true;
-  showMessage(nameMessage, "Saving your profile...");
-
-  try {
-    if (await isStudentNameTaken(customName, rollNo)) {
-      window.alert("This name is already in use. Please choose a different display name.");
-      showMessage(nameMessage, "Choose a different display name.", true);
-      return;
-    }
-
-    const { data, error } = await supabaseClient
-      .from("Credentials")
-      .update({ student_name: customName })
-      .eq("roll_no", rollNo);
-
-    if (error) {
-      console.error("Supabase Update Error:", error);
-      window.alert(error.message);
-      updateErrorAlerted = true;
-      throw error;
-    }
-
-    const { error: metadataError } = await supabaseClient.auth.updateUser({ data: { display_name: customName } });
-    if (metadataError) throw metadataError;
-
-    const session = {
-      ...onboardingAccess,
-      name: titleCaseName(customName),
-      authUserId: onboardingAuthUser.id
-    };
-    sessionStorage.setItem("customName", customName);
-    sessionStorage.setItem("classPortal.activeSession", JSON.stringify(session));
-    nameForm.reset();
-    nameForm.hidden = true;
-    onboardingComplete = true;
-    await showApp(session);
-  } catch (error) {
-    console.error("Unable to complete onboarding profile setup.", error);
-    await releaseActiveSession(onboardingAccess);
-    if (!updateErrorAlerted) {
-      window.alert(error.message || "We couldn't save your name. Please try signing in again.");
-    }
-  } finally {
-    if (onboardingComplete) {
-      loginModal.hidden = true;
-      appView.hidden = false;
-    }
-    submitButton.disabled = false;
-  }
-});
-
-document.getElementById("nav-login-button").addEventListener("click", () => {
+function openLoginModal() {
   loginModal.hidden = false;
+  document.getElementById("roll-no").focus();
+}
+
+document.getElementById("open-login-button").addEventListener("click", openLoginModal);
+document.getElementById("welcome-login-button").addEventListener("click", openLoginModal);
+document.getElementById("close-login").addEventListener("click", () => {
+  loginModal.hidden = true;
 });
 
 document.getElementById("change-name-button").addEventListener("click", () => {
@@ -1125,11 +1009,8 @@ changeNameForm.addEventListener("submit", async (event) => {
       .eq("roll_no", activeSession.rollNo);
     if (error) throw error;
 
-    const { error: metadataError } = await supabaseClient.auth.updateUser({ data: { display_name: customName } });
-    if (metadataError) throw metadataError;
     activeSession.name = titleCaseName(customName);
-    sessionStorage.setItem("customName", customName);
-    sessionStorage.setItem("classPortal.activeSession", JSON.stringify(activeSession));
+    localStorage.setItem("classPortal.activeSession", JSON.stringify(activeSession));
     changeNameForm.reset();
     renderUser(activeSession);
     changeNameModal.hidden = true;
@@ -1143,23 +1024,13 @@ changeNameForm.addEventListener("submit", async (event) => {
 
 document.getElementById("logout-button").addEventListener("click", () => {
   void releaseActiveSession();
-  void supabaseClient.auth.signOut();
   activeSession = null;
   isAdmin = false;
-  onboardingAuthUser = null;
-  onboardingAccess = null;
   updateUIState(false);
-  sessionStorage.removeItem("classPortal.activeSession");
-  appView.hidden = true;
-  loginModal.hidden = false;
-  accessForm.reset();
-  nameForm.reset();
-  accessForm.hidden = true;
-  nameForm.hidden = true;
-  document.getElementById("onboarding-step-1").hidden = false;
-  document.getElementById("access-code").disabled = true;
-  document.getElementById("roll-no").disabled = true;
+  localStorage.removeItem("classPortal.activeSession");
+  loginForm.reset();
   showMessage(loginMessage, "");
+  showWelcomePage();
 });
 
 window.addEventListener("beforeunload", () => {
@@ -1205,7 +1076,7 @@ document.getElementById("admin-code-form").addEventListener("submit", async (eve
 document.getElementById("question-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!isLoggedIn) {
-    window.alert("Please login with Google to participate.");
+    window.alert("Please log in to participate.");
     return;
   }
   if (!activeSession || activeSession.role === "admin") return;
@@ -1235,120 +1106,7 @@ document.getElementById("question-form").addEventListener("submit", async (event
   submitButton.disabled = false;
 });
 
-async function loadGooglePicker() {
-  if (!window.gapi) throw new Error("Google API script is unavailable.");
-  await new Promise((resolve, reject) => {
-    window.gapi.load("picker", {
-      callback: resolve,
-      onerror: () => reject(new Error("Google Picker could not be loaded.")),
-      timeout: 10000,
-      ontimeout: () => reject(new Error("Google Picker load timed out."))
-    });
-  });
-}
-
-async function savePickedDrivePdf(file) {
-  if (!file?.id || !file.name) {
-    window.alert("Google Drive did not provide the selected file details.");
-    return;
-  }
-  if (file.mimeType && file.mimeType !== "application/pdf") {
-    window.alert("Please select a PDF file only.");
-    return;
-  }
-
-  const titleInput = document.getElementById("note-title-input");
-  const title = titleInput.value.trim();
-  const subject = document.getElementById("note-category-input").value;
-  if (!title) {
-    window.alert("Enter a Note Title before selecting a Google Drive PDF.");
-    titleInput.focus();
-    return;
-  }
-  if (!subject) {
-    window.alert("Choose a subject before selecting a Google Drive PDF.");
-    document.getElementById("note-category-input").focus();
-    return;
-  }
-  const fileUrl = file.embedUrl || file.webViewLink || file.url || `https://drive.google.com/file/d/${file.id}/view`;
-  const browseButton = document.getElementById("browse-drive-button");
-  const selectionName = document.getElementById("drive-selection-name");
-  const uploaderName = activeSession?.name || sessionStorage.getItem("customName") || "Admin";
-  if (browseButton) browseButton.disabled = true;
-  showMessage(document.getElementById("upload-message"), "Saving selected PDF...");
-
-  try {
-    const { error } = await supabaseClient
-      .from("notes")
-      .insert({
-        title,
-        subject,
-        file_url: fileUrl,
-        uploaded_by: uploaderName,
-        uploader_role: "admin"
-      });
-    if (error) throw error;
-
-    if (selectionName) {
-      selectionName.textContent = `Selected: ${title}`;
-      selectionName.hidden = false;
-    }
-    document.getElementById("note-title-input").value = "";
-    showMessage(document.getElementById("upload-message"), "Drive PDF added to Class Notes.");
-    await fetchNotes();
-  } catch (error) {
-    console.error("Unable to save selected Drive PDF.", error);
-    window.alert(`Database Error: ${error.message || "Unable to save selected PDF."}`);
-    showMessage(document.getElementById("upload-message"), error.message || "Unable to save selected PDF.", true);
-  } finally {
-    if (browseButton) browseButton.disabled = false;
-  }
-}
-
-async function openGoogleDrivePicker() {
-  if (!isAdmin) {
-    window.alert("Only Admin users can import notes from Google Drive.");
-    return;
-  }
-  if (!googleAccessToken) {
-    window.alert("Google Drive access is unavailable. Sign in again and grant Drive read access.");
-    return;
-  }
-
-  const browseButton = document.getElementById("browse-drive-button");
-  if (browseButton) browseButton.disabled = true;
-  try {
-    await loadGooglePicker();
-    const pickerApi = window.google.picker;
-    const pdfView = new pickerApi.DocsView(pickerApi.ViewId.DOCS);
-    pdfView.setMimeTypes("application/pdf");
-    pdfView.setIncludeFolders(false);
-
-    const picker = new pickerApi.PickerBuilder()
-      .setDeveloperKey(DRIVE_API_KEY)
-      .setOAuthToken(googleAccessToken)
-      .addView(pdfView)
-      .setCallback((data) => {
-        if (data.action === pickerApi.Action.PICKED) {
-          void savePickedDrivePdf(data.docs?.[0]);
-        }
-      })
-      .build();
-    picker.setVisible(true);
-  } catch (error) {
-    console.error("Unable to open Google Drive Picker.", error);
-    window.alert(error.message || "Unable to open Google Drive Picker.");
-  } finally {
-    if (browseButton) browseButton.disabled = false;
-  }
-}
-
-document.getElementById("browse-drive-button").addEventListener("click", openGoogleDrivePicker);
-
 async function uploadPdfWithProgress(file, filePath) {
-  const { data: { session }, error: sessionError } = await supabaseClient.auth.getSession();
-  if (sessionError) throw sessionError;
-  if (!session?.access_token) throw new Error("Your session expired. Please sign in again.");
   if (noteUploadCancelRequested) {
     const canceledError = new Error("Upload canceled.");
     canceledError.name = "AbortError";
@@ -1361,7 +1119,7 @@ async function uploadPdfWithProgress(file, filePath) {
     const encodedPath = filePath.split("/").map(encodeURIComponent).join("/");
     xhr.open("POST", `${SUPABASE_PROJECT_URL}/storage/v1/object/notes-bucket/${encodedPath}`);
     xhr.setRequestHeader("apikey", SUPABASE_ANON_KEY);
-    xhr.setRequestHeader("Authorization", `Bearer ${session.access_token}`);
+    xhr.setRequestHeader("Authorization", `Bearer ${SUPABASE_ANON_KEY}`);
     xhr.setRequestHeader("Content-Type", "application/pdf");
     xhr.setRequestHeader("x-upsert", "false");
 
@@ -1422,7 +1180,7 @@ document.getElementById("note-file-input").addEventListener("change", (event) =>
 document.getElementById("upload-notes-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!isLoggedIn) {
-    window.alert("Please login with Google to participate.");
+    window.alert("Please log in to participate.");
     return;
   }
 
@@ -1432,13 +1190,23 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
   const title = document.getElementById("note-title-input").value.trim();
   const subject = document.getElementById("note-category-input").value;
   const file = document.getElementById("note-file-input").files[0];
+  const driveLink = document.getElementById("drive-link-input").value.trim();
   const uploaderRole = isAdmin ? "admin" : "student";
-  const uploaderName = activeSession?.name || sessionStorage.getItem("customName") || "Student";
-  const uploaderId = activeSession?.authUserId || onboardingAuthUser?.id;
+  const uploaderName = activeSession?.name || "Student";
+  const uploaderId = activeSession?.rollNo || "student";
 
   if (source === "drive") {
-    window.alert("Choose a PDF with Browse Google Drive. It will be saved when selected.");
-    return;
+    if (!isAdmin) {
+      window.alert("Only Admin users can import Drive links.");
+      return;
+    }
+    try {
+      const parsedDriveUrl = new URL(driveLink);
+      if (!parsedDriveUrl.hostname.endsWith("drive.google.com")) throw new Error("Enter a valid Google Drive URL.");
+    } catch (error) {
+      window.alert(error.message || "Enter a valid Google Drive URL.");
+      return;
+    }
   }
 
   if (source === "local" && (!file || file.type !== "application/pdf")) {
@@ -1456,7 +1224,12 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     return;
   }
   if (uploaderRole === "admin") {
-    window.alert("Admins should import PDFs using Browse Google Drive.");
+    if (source !== "drive") {
+      window.alert("Admins should import PDFs using a Google Drive link.");
+      return;
+    }
+  } else if (source !== "local") {
+    window.alert("Students can upload local PDF files only.");
     return;
   }
 
@@ -1468,11 +1241,11 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
   const cancelButton = document.getElementById("cancel-upload-button");
   progress.value = 0;
   progressLabel.textContent = "0%";
-  progressContainer.hidden = false;
-  cancelButton.hidden = false;
+  progressContainer.hidden = source !== "local";
+  cancelButton.hidden = source !== "local";
   noteUploadCancelRequested = false;
   try {
-    let fileUrl;
+    let fileUrl = source === "drive" ? driveLink : null;
     if (uploaderRole === "student") {
       const filePath = `${uploaderId || "student"}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
       try {
@@ -1525,19 +1298,15 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
   }
 });
 
-const uploadForm = document.getElementById("upload-notes-form");
 const noteFileInput = document.getElementById("note-file-input");
-const browseDriveButton = document.getElementById("browse-drive-button");
-const driveSelectionName = document.getElementById("drive-selection-name");
-const uploadNotesButton = document.getElementById("upload-notes-button");
+const driveLinkInput = document.getElementById("drive-link-input");
 document.querySelectorAll("input[name='uploadSource']").forEach((sourceOption) => {
   sourceOption.addEventListener("change", () => {
     const isDriveSource = sourceOption.value === "drive" && sourceOption.checked;
     noteFileInput.hidden = isDriveSource;
     noteFileInput.required = !isDriveSource;
-    browseDriveButton.hidden = !isDriveSource || !isAdmin;
-    driveSelectionName.hidden = !isDriveSource || !driveSelectionName.textContent;
-    uploadNotesButton.hidden = isDriveSource;
+    driveLinkInput.hidden = !isDriveSource;
+    driveLinkInput.required = isDriveSource;
   });
 });
 
@@ -1565,53 +1334,24 @@ async function initApp() {
 }
 
 async function initializeApp() {
-  let authSession;
+  let restoredSession;
   try {
-    const { data: { session } } = await supabaseClient.auth.getSession();
-    authSession = session;
+    restoredSession = await restoreSavedSession();
   } catch (error) {
-    console.error("Unable to restore Supabase session.", error);
-    showGoogleLoginStep();
+    console.error("Unable to restore local portal session.", error);
   }
 
-  if (!authStateSubscription) {
-    authStateSubscription = supabaseClient.auth.onAuthStateChange((_event, session) => {
-      void handleAuthSession(session);
-    });
-  }
-
-  if (!authSession) {
-    showGoogleLoginStep();
-    return;
-  }
-
-  onboardingAuthUser = authSession.user;
-  googleAccessToken = authSession.provider_token || sessionStorage.getItem("googleProviderToken") || null;
-  if (authSession.provider_token) sessionStorage.setItem("googleProviderToken", authSession.provider_token);
-  isAdmin = onboardingAuthUser.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
-  const restoredSession = await restoreOnboardedSession(authSession);
   if (restoredSession?.securityConflict) {
-    await supabaseClient.auth.signOut();
-    localStorage.clear();
+    localStorage.removeItem("classPortal.activeSession");
     window.alert("Session active on another device. Please log out there first.");
-    showGoogleLoginStep();
+    showWelcomePage();
     return;
   }
-  if (restoredSession) {
-    await showApp(restoredSession);
-    updateUIState(true);
-  } else {
-    await handleAuthSession(authSession);
+  if (!restoredSession) {
+    showWelcomePage();
+    return;
   }
-
-  subscribeToQuestionChanges();
-  subscribeToAnswerChanges();
-  subscribeToNoteChanges();
-  subscribeToPollChanges();
-  await syncAdminDriveFolder();
-  await fetchQuestions();
-  await fetchNotes();
-  await fetchPolls();
+  await showApp(restoredSession);
   updateNotesCount();
 
   const notesList = document.getElementById("notes-list-container");

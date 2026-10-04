@@ -15,45 +15,38 @@
   <div class="ambient ambient-one"></div>
   <div class="ambient ambient-two"></div>
 
-  <div id="login-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="login-title">
+  <main id="welcome-page" class="welcome-page">
+    <header class="topbar welcome-topbar">
+      <a class="wordmark" href="#welcome" aria-label="Northstar home"><span>N</span> northstar</a>
+      <button id="open-login-button" class="button nav-login-button" type="button">Login to Portal</button>
+    </header>
+    <section id="welcome" class="welcome-hero">
+      <p class="eyebrow">Class 9 Study Portal</p>
+      <h1>Welcome to<br><span>Northstar.</span></h1>
+      <p>One place to find class notes, ask questions, and learn with your classmates.</p>
+      <button id="welcome-login-button" class="button button-primary" type="button">Login to Portal <span aria-hidden="true">&#8594;</span></button>
+    </section>
+    <section class="welcome-features" aria-label="Portal features">
+      <article><span class="feature-index">01</span><h2>Study Notes</h2><p>Browse and share subject notes and PDFs.</p></article>
+      <article><span class="feature-index">02</span><h2>Questions &amp; Answers</h2><p>Ask doubts and learn from classmate replies.</p></article>
+      <article><span class="feature-index">03</span><h2>Class Polls</h2><p>Vote in quick polls and see results update live.</p></article>
+    </section>
+  </main>
+
+  <div id="login-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
     <div class="login-card">
+      <button id="close-login" class="modal-close icon-button" type="button" aria-label="Close login">&#10005;</button>
       <div class="brand-mark" aria-hidden="true">N</div>
       <p class="eyebrow">Northstar learning hub</p>
-      <div id="onboarding-step-1" class="onboarding-step">
-        <p class="step-count">Step 1 of 3</p>
-        <h1 id="login-title">Welcome to<br><span>Northstar.</span></h1>
-        <p class="login-intro">Sign in with Google to begin your Class 9 study journey.</p>
-        <button id="google-login-btn" class="button google-button button-full" type="button" onclick="signInWithGoogle()">Sign in with Google <span aria-hidden="true">&#8594;</span></button>
-      </div>
-
-      <form id="access-form" class="onboarding-step" hidden>
-        <p class="step-count">Step 2 of 3</p>
-        <h1>Verify your<br><span>student access.</span></h1>
-        <p class="login-intro">Enter the access code and roll number assigned to you.</p>
-        <label for="access-code">Access Code</label>
-        <input id="access-code" name="accessCode" type="text" placeholder="NS-0000" required disabled>
-        <label for="roll-no">Roll Number</label>
-        <select id="roll-no" name="rollNo" required disabled>
-          <option value="">Select roll number</option>
-          <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
-          <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
-          <option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
-          <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
-          <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
-          <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
-        </select>
+      <h1 id="login-title">Login to<br><span>your portal.</span></h1>
+      <p class="login-intro">Use the Roll Number and Access Code provided by your school.</p>
+      <form id="login-form" class="login-form">
+        <label for="roll-no">Student Roll Number</label>
+        <input id="roll-no" name="rollNo" type="number" min="1" max="30" step="1" placeholder="e.g. 12" required>
+        <label for="access-code">Access Code / Password</label>
+        <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter your access code" required>
         <p id="login-message" class="form-message" role="alert"></p>
-        <button class="button button-primary button-full" type="submit">Continue <span aria-hidden="true">&#8594;</span></button>
-      </form>
-
-      <form id="name-form" class="onboarding-step" hidden>
-        <p class="step-count">Step 3 of 3</p>
-        <h1>What should we<br><span>call you?</span></h1>
-        <p class="login-intro">Choose the display name your classmates will see in the portal.</p>
-        <label for="custom-name">Preferred display name</label>
-        <input id="custom-name" name="customName" type="text" placeholder="e.g. Aarav Sharma" autocomplete="name" required>
-        <p id="name-message" class="form-message" role="alert"></p>
-        <button class="button button-primary button-full" type="submit">Enter portal <span aria-hidden="true">&#8594;</span></button>
+        <button class="button button-primary button-full" type="submit">Login to Portal <span aria-hidden="true">&#8594;</span></button>
       </form>
     </div>
   </div>
@@ -75,7 +68,6 @@
   <main id="app-view" class="app-shell" hidden>
     <header class="topbar">
       <a class="wordmark" href="#top" aria-label="Northstar home"><span>N</span> northstar</a>
-      <button id="nav-login-button" class="button nav-login-button" type="button" hidden>Login / Sign In</button>
       <div id="user-profile" class="user-menu profile-badge">
         <div class="user-copy">
           <strong id="user-display-name">Student Name</strong>
@@ -154,7 +146,7 @@
             <fieldset class="upload-source-options">
               <legend>Upload source</legend>
               <label><input type="radio" name="uploadSource" value="local" checked> Upload Local PDF</label>
-              <label><input id="drive-source-option" type="radio" name="uploadSource" value="drive"> Import from Google Drive</label>
+              <label><input id="drive-source-option" type="radio" name="uploadSource" value="drive"> Import from Drive Link</label>
             </fieldset>
             <label for="note-title-input">Note title</label>
             <input id="note-title-input" name="noteTitle" type="text" placeholder="e.g. Algebra essentials" required>
@@ -163,8 +155,7 @@
             <div class="upload-row">
               <label class="file-input-label" for="note-file-input">PDF file</label>
               <input id="note-file-input" name="noteFile" type="file" accept=".pdf,application/pdf" required>
-              <button id="browse-drive-button" class="button button-outline" type="button" hidden>Browse Google Drive</button>
-              <span id="drive-selection-name" class="drive-selection-name" hidden></span>
+              <input id="drive-link-input" name="driveLink" type="url" placeholder="Direct Drive PDF link" hidden>
               <button id="upload-notes-button" class="button button-outline" type="submit">Upload</button>
             </div>
             <div id="upload-progress-container" class="upload-progress-container" hidden>
@@ -228,7 +219,6 @@
     </div>
     <footer class="footer">Northstar Study Portal <span>&middot;</span> Built for curious minds</footer>
   </main>
-  <script src="https://apis.google.com/js/api.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
 </body>

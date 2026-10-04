@@ -150,8 +150,6 @@ h3 { margin-bottom: 0; font-size: 25px; letter-spacing: -.04em; }.section-headin
   .reply-submit { width: 100%; }
 }
 
-.google-button { margin-top: 10px; color: var(--ink); border: 1px solid var(--line); background: var(--white); }
-.google-button:hover { background: #f3f6f5; }
 .nav-login-button { padding: 10px 16px; color: var(--white); background: var(--teal); }
 .nav-login-button:hover { background: var(--teal-dark); }
 .modal-close { position: absolute; top: 18px; right: 18px; }
@@ -159,6 +157,19 @@ h3 { margin-bottom: 0; font-size: 25px; letter-spacing: -.04em; }.section-headin
 .profile-logout { padding: 5px 8px; border: 0; border-left: 1px solid var(--line); color: var(--teal); background: transparent; cursor: pointer; font-size: 11px; font-weight: 700; }
 .name-edit-card { max-width: 430px; }
 .profile-logout:hover { color: var(--teal-dark); }
+.welcome-page { display: grid; grid-template-rows: auto 1fr auto; width: min(1120px, calc(100% - 48px)); min-height: 100vh; margin: 0 auto; }
+.welcome-topbar { width: 100%; }
+.welcome-hero { align-self: center; padding: 55px 0 68px; animation: appear .55s ease both; }
+.welcome-hero h1 { max-width: 760px; margin: 0 0 22px; color: var(--ink); font-size: 68px; line-height: .98; letter-spacing: 0; }
+.welcome-hero h1 span { color: var(--teal); }
+.welcome-hero > p:not(.eyebrow) { max-width: 470px; margin-bottom: 25px; color: var(--muted); font-size: 16px; line-height: 1.65; }
+.welcome-hero .button { display: inline-flex; align-items: center; justify-content: space-between; gap: 32px; min-width: 190px; padding: 14px 18px; }
+.welcome-features { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-top: 1px solid var(--line); }
+.welcome-features article { min-height: 140px; padding: 20px 24px 26px 0; }
+.welcome-features article + article { padding-left: 24px; border-left: 1px solid var(--line); }
+.feature-index { color: var(--orange); font-family: "Space Grotesk", sans-serif; font-size: 11px; font-weight: 700; }
+.welcome-features h2 { margin: 12px 0 6px; font-size: 18px; letter-spacing: 0; }
+.welcome-features p { max-width: 260px; margin: 0; color: var(--muted); font-size: 12px; line-height: 1.55; }
 .feed-tools { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin: -5px 0 18px; }
 .subject-tabs { display: flex; flex-wrap: wrap; gap: 7px; }
 .subject-tab { padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px; color: var(--muted); background: var(--white); cursor: pointer; font-size: 11px; font-weight: 700; }
@@ -180,7 +191,6 @@ h3 { margin-bottom: 0; font-size: 25px; letter-spacing: -.04em; }.section-headin
 .upload-progress-container progress { flex: 1; width: 100%; height: 8px; accent-color: var(--teal); }
 .upload-progress-container span { min-width: 34px; color: var(--muted); font-size: 11px; }
 .upload-progress-container .button { padding: 7px 10px; font-size: 10px; }
-.drive-selection-name { min-width: 0; overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
 .upload-source-options { margin-bottom: 14px; }
 .note-card { display: flex; flex-direction: column; gap: 7px; margin-top: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--white); box-shadow: 0 4px 14px rgba(23, 34, 45, .04); }
 .note-card h4 { margin: 0; font-size: 14px; }
@@ -188,6 +198,12 @@ h3 { margin-bottom: 0; font-size: 25px; letter-spacing: -.04em; }.section-headin
 .note-role-badge { padding: 4px 7px; border-radius: 999px; color: var(--teal-dark); background: #dceee9; font-size: 10px; font-weight: 700; }
 .note-card-link { color: var(--teal); font-size: 11px; font-weight: 700; }
 @media (max-width: 430px) {
+  .welcome-page { width: calc(100% - 32px); }
+  .welcome-hero { padding: 48px 0; }
+  .welcome-hero h1 { font-size: 48px; }
+  .welcome-features { grid-template-columns: 1fr; }
+  .welcome-features article { min-height: 0; padding: 16px 0; }
+  .welcome-features article + article { padding-left: 0; border-left: 0; border-top: 1px solid var(--line); }
   .feed-tools { align-items: stretch; flex-direction: column; }
   .feed-search { width: 100%; }
   .profile-badge { padding-left: 8px; }
