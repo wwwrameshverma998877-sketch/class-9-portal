@@ -1331,8 +1331,9 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
       fileUrl = publicUrlData.publicUrl;
     }
 
+    let insertedNote = null;
     try {
-      const { error: insertError } = await supabaseClient
+      const { data, error: insertError } = await supabaseClient
         .from("notes")
         .insert({
           title,
@@ -1340,16 +1341,27 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
           subject,
           roll_number: uploaderId,
           role: uploaderRole
-        });
+        })
+        .select();
       if (insertError) {
         console.error("Database Error:", insertError);
         window.alert(`Database Error: ${insertError.message}`);
         return;
       }
+      insertedNote = data?.[0] || null;
     } catch (error) {
       console.error("Database Error:", error);
       window.alert(`Database Error: ${error.message}`);
       return;
+    }
+
+    if (insertedNote) {
+      const enrichedNote = {
+        ...insertedNote,
+        uploader_name: activeSession?.name || "Portal member"
+      };
+      allNotes = [enrichedNote, ...allNotes];
+      renderNotes();
     }
 
     form.reset();
