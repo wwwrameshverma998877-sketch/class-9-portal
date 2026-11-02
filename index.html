@@ -157,9 +157,18 @@
       </section>
 
       <nav class="dashboard-tabs" aria-label="Main sections">
-        <button class="dashboard-tab is-active" type="button" data-panel="notes" aria-selected="true">Notes</button>
-        <button class="dashboard-tab" type="button" data-panel="doubts" aria-selected="false">Q&amp;A Doubts</button>
-        <button class="dashboard-tab" type="button" data-panel="polls" aria-selected="false">Polls</button>
+        <button class="dashboard-tab is-active" type="button" data-panel="notes" aria-selected="true">
+          <span class="tab-icon" aria-hidden="true">📒</span>
+          <span class="tab-label">Notes</span>
+        </button>
+        <button class="dashboard-tab" type="button" data-panel="doubts" aria-selected="false">
+          <span class="tab-icon" aria-hidden="true">💬</span>
+          <span class="tab-label">Q&amp;A</span>
+        </button>
+        <button class="dashboard-tab" type="button" data-panel="polls" aria-selected="false">
+          <span class="tab-icon" aria-hidden="true">📊</span>
+          <span class="tab-label">Polls</span>
+        </button>
       </nav>
 
       <div class="dashboard-panel is-active" data-panel="notes">
