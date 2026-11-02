@@ -56,6 +56,87 @@ function syncUploadSourceUI() {
   driveLinkInput.disabled = !isDriveAllowed;
 }
 
+const FOCUS_ACTIVITY_KEY = "classPortal.studentFocusActivity";
+
+function getFocusActivityMap() {
+  try {
+    const raw = localStorage.getItem(FOCUS_ACTIVITY_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    console.error("Unable to read focus activity.", error);
+    return {};
+  }
+}
+
+function getCurrentStudentFocusState() {
+  const currentRollNo = String(activeSession?.roll_number || activeSession?.rollNo || "anonymous").trim();
+  const stateMap = getFocusActivityMap();
+  const current = stateMap[currentRollNo] || {
+    dailyLogins: 0,
+    notes: 0,
+    questions: 0,
+    answers: 0,
+    votes: 0,
+    lastLoginDate: ""
+  };
+  return { currentRollNo, stateMap, current };
+}
+
+function persistFocusActivity(nextState) {
+  if (!nextState || !nextState.currentRollNo) return;
+  const stateMap = getFocusActivityMap();
+  stateMap[nextState.currentRollNo] = nextState.current;
+  localStorage.setItem(FOCUS_ACTIVITY_KEY, JSON.stringify(stateMap));
+}
+
+function trackStudentActivity(type) {
+  const { currentRollNo, stateMap, current } = getCurrentStudentFocusState();
+  if (!currentRollNo || currentRollNo === "anonymous") return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (type === "login") {
+    if (current.lastLoginDate !== today) {
+      current.dailyLogins = Number(current.dailyLogins || 0) + 1;
+    }
+    current.lastLoginDate = today;
+  } else if (type === "note") {
+    current.notes = Number(current.notes || 0) + 1;
+  } else if (type === "question") {
+    current.questions = Number(current.questions || 0) + 1;
+  } else if (type === "answer") {
+    current.answers = Number(current.answers || 0) + 1;
+  } else if (type === "vote") {
+    current.votes = Number(current.votes || 0) + 1;
+  }
+
+  stateMap[currentRollNo] = current;
+  localStorage.setItem(FOCUS_ACTIVITY_KEY, JSON.stringify(stateMap));
+  renderFocusScore();
+}
+
+function calculateStudentFocusScore() {
+  const { currentRollNo, current } = getCurrentStudentFocusState();
+  if (!currentRollNo || currentRollNo === "anonymous") return 42;
+
+  const score = Math.min(96, 22 + (Number(current.dailyLogins || 0) * 18) + (Number(current.notes || 0) * 12) + (Number(current.questions || 0) * 15) + (Number(current.answers || 0) * 10) + (Number(current.votes || 0) * 8));
+  return Math.max(20, score);
+}
+
+function renderFocusScore() {
+  const orbit = document.querySelector(".progress-orbit .progress-inner");
+  if (!orbit) return;
+
+  const score = calculateStudentFocusScore();
+  let label = "steady focus";
+  if (score >= 80) label = "strong focus";
+  else if (score >= 60) label = "steady focus";
+  else if (score >= 40) label = "building focus";
+  else label = "needs reset";
+
+  orbit.innerHTML = `<strong>${score}%</strong><span>${label}</span>`;
+  orbit.setAttribute("aria-label", `Personal focus score: ${score} percent`);
+}
+
 function updateUIState(loggedIn) {
   isLoggedIn = loggedIn;
   if (adminPanel) adminPanel.hidden = !isAdmin;
@@ -203,6 +284,8 @@ async function showApp(session) {
   activeSession = session;
   isAdmin = session.role?.toLowerCase() === "admin";
   renderUser(session);
+  trackStudentActivity("login");
+  renderFocusScore();
   welcomePage.hidden = true;
   loginModal.hidden = true;
   appView.hidden = false;
@@ -990,7 +1073,7 @@ function subscribeToNoteChanges() {
     .channel("realtime-notes")
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "notes" },
+      { event: "*", schema: "public", table: "notes" },
       () => {
         void fetchNotes();
       }
@@ -1197,6 +1280,7 @@ document.getElementById("question-form").addEventListener("submit", async (event
     console.error("Unable to submit question.", error);
     showMessage(document.getElementById("question-message"), error.message || "Unable to submit question.", true);
   } else {
+    trackStudentActivity("question");
     form.reset();
     showMessage(document.getElementById("question-message"), "Your question is now in the feed.");
     await fetchQuestions();
@@ -1396,6 +1480,7 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     }
 
     if (insertedNote) {
+      trackStudentActivity("note");
       const enrichedNote = {
         ...insertedNote,
         uploaded_by: uploaderName
