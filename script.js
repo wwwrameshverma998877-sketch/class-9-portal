@@ -36,6 +36,26 @@ const loginMessage = document.getElementById("login-message");
 const adminPanel = document.querySelector(".admin-panel");
 const questionSection = document.querySelector(".ask-section");
 
+function syncUploadSourceUI() {
+  const localSource = document.querySelector("input[name='uploadSource'][value='local']");
+  const driveSource = document.getElementById("drive-source-option");
+  const fileInput = document.getElementById("note-file-input");
+  const driveLinkInput = document.getElementById("drive-link-input");
+  if (!localSource || !driveSource || !fileInput || !driveLinkInput) return;
+
+  const isDriveAllowed = isLoggedIn && isAdmin;
+  driveSource.disabled = !isDriveAllowed;
+  if (!isDriveAllowed && driveSource.checked) localSource.checked = true;
+
+  const isDriveSource = driveSource.checked && isDriveAllowed;
+  fileInput.hidden = isDriveSource;
+  fileInput.required = !isDriveSource;
+  fileInput.disabled = !isLoggedIn;
+  driveLinkInput.hidden = !isDriveSource;
+  driveLinkInput.required = isDriveSource;
+  driveLinkInput.disabled = !isDriveAllowed;
+}
+
 function updateUIState(loggedIn) {
   isLoggedIn = loggedIn;
   if (adminPanel) adminPanel.hidden = !isAdmin;
@@ -54,10 +74,7 @@ function updateUIState(loggedIn) {
       control.disabled = !loggedIn;
       control.title = loggedIn ? "Upload notes or documents" : "Log in to participate.";
     });
-    const driveSource = document.getElementById("drive-source-option");
-    const driveLink = document.getElementById("drive-link-input");
-    if (driveSource) driveSource.disabled = !loggedIn || !isAdmin;
-    if (driveLink) driveLink.disabled = !loggedIn || !isAdmin;
+    syncUploadSourceUI();
   }
   const postQuestionButton = document.getElementById("post-question-button");
   if (postQuestionButton) postQuestionButton.disabled = !loggedIn;
@@ -179,7 +196,7 @@ function renderUser(session) {
   if (welcomeElement) welcomeElement.textContent = session.name.split(" ")[0];
   if (avatarElement) avatarElement.textContent = session.name.charAt(0).toUpperCase();
   if (adminPanel) adminPanel.hidden = !isAdmin;
-  if (questionSection) questionSection.hidden = session.role === "admin";
+  if (questionSection) questionSection.hidden = String(session.role || "").toLowerCase() === "admin";
 }
 
 async function showApp(session) {
@@ -412,6 +429,33 @@ function renderReplySection(body, question) {
   void fetchAnswersForQuestion(questionId);
 }
 
+async function resolveUploaderName(note) {
+  const directName = note.uploader_name || note.uploaded_by || note.student_name || note.author_name || "";
+  if (directName) return directName;
+
+  const rollNumber = note.roll_number || note.rollNo;
+  if (!rollNumber || String(rollNumber).trim() === "" || String(rollNumber).toLowerCase() === "admin") return "Portal member";
+
+  const { data, error } = await supabaseClient
+    .from("Credentials")
+    .select("student_name")
+    .eq("roll_number", rollNumber)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Unable to resolve note uploader name.", error);
+    return "Portal member";
+  }
+
+  return data?.student_name || "Portal member";
+}
+
+function canDeleteNote(note) {
+  if (isAdmin) return true;
+  const currentRollNo = activeSession?.rollNo;
+  return Boolean(currentRollNo) && String(note.roll_number || "") === String(currentRollNo);
+}
+
 function renderNoteCard(note) {
   const card = document.createElement("article");
   const title = document.createElement("h4");
@@ -424,10 +468,10 @@ function renderNoteCard(note) {
   card.className = "note-card";
   title.textContent = note.title || "Untitled note";
   metadata.className = "note-card-meta";
-  const uploaderName = note.uploaded_by || note.uploader_name || "Portal member";
+  const uploaderName = note.uploader_name || note.uploaded_by || note.student_name || note.author_name || note.roll_number || "Portal member";
   uploader.textContent = `Uploaded by: ${uploaderName}`;
   roleBadge.className = "note-role-badge";
-  roleBadge.textContent = note.uploader_role === "admin" ? "Admin" : "Student";
+  roleBadge.textContent = (note.role || note.uploader_role || "student").toLowerCase() === "admin" ? "Admin" : "Student";
   metadata.append(uploader, roleBadge);
   if (note.subject) {
     const subjectBadge = document.createElement("span");
@@ -443,8 +487,9 @@ function renderNoteCard(note) {
   deleteButton.className = "button button-outline delete-note-button";
   deleteButton.type = "button";
   deleteButton.textContent = "Delete Note";
-  deleteButton.disabled = !isAdmin;
-  deleteButton.title = isAdmin ? "Delete this note" : "Admin access required";
+  const canDelete = canDeleteNote(note);
+  deleteButton.disabled = !canDelete;
+  deleteButton.title = canDelete ? "Delete this note" : "Only the uploader or an admin can delete this note";
   deleteButton.addEventListener("click", () => void deleteNote(note, card));
   card.append(title, metadata, link, deleteButton);
   return card;
@@ -461,8 +506,8 @@ function getNotesStoragePath(fileUrl) {
 }
 
 async function deleteNote(note, card) {
-  if (!isAdmin) {
-    window.alert("Only Admin users can delete notes.");
+  if (!canDeleteNote(note)) {
+    window.alert("Only the uploader or an admin can delete this note.");
     return;
   }
   if (!window.confirm("Are you sure you want to delete this note?")) return;
@@ -510,7 +555,12 @@ async function fetchNotes() {
     return;
   }
 
-  allNotes = notes;
+  const enrichedNotes = await Promise.all(notes.map(async (note) => {
+    const resolvedName = await resolveUploaderName(note);
+    return { ...note, uploader_name: resolvedName };
+  }));
+
+  allNotes = enrichedNotes;
   renderNotes();
 }
 
@@ -920,7 +970,7 @@ function subscribeToNoteChanges() {
     .channel("realtime-notes")
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "notes" },
+      { event: "*", schema: "public", table: "notes" },
       () => fetchNotes()
     )
     .subscribe((status) => {
@@ -1324,11 +1374,7 @@ const noteFileInput = document.getElementById("note-file-input");
 const driveLinkInput = document.getElementById("drive-link-input");
 document.querySelectorAll("input[name='uploadSource']").forEach((sourceOption) => {
   sourceOption.addEventListener("change", () => {
-    const isDriveSource = sourceOption.value === "drive" && sourceOption.checked;
-    noteFileInput.hidden = isDriveSource;
-    noteFileInput.required = !isDriveSource;
-    driveLinkInput.hidden = !isDriveSource;
-    driveLinkInput.required = isDriveSource;
+    syncUploadSourceUI();
   });
 });
 
