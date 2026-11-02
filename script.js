@@ -5,14 +5,7 @@ const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON
 const DRIVE_FOLDER_ID = "1kvzcnMaijD6g06GT5loXUtJ1xom7N2t0";
 const DRIVE_API_KEY = "AIzaSyDL9mJG7q0JFRXSKNjLKIdYR4nyS8I5ZE0";
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
-const SESSION_INACTIVE_LIMIT_MS = 15 * 60 * 1000;
 const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
-const DEVICE_TOKEN = localStorage.getItem("device_token") || (() => {
-  const token = globalThis.crypto?.randomUUID?.() || `device-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  localStorage.setItem("device_token", token);
-  return token;
-})();
-
 let activeSession = null;
 let isLoggedIn = false;
 let isAdmin = false;
@@ -89,13 +82,13 @@ function titleCaseName(name) {
 }
 
 function getRollNo(record) {
-  return record.rollNo || record.std || record.studentClass || "-";
+  return record.rollNo || record.roll_number || record.standard || record.std || record.studentClass || "-";
 }
 
 async function releaseActiveSession(session = activeSession) {
-  if (!session?.deviceToken || !session.rollNo || session.rollNo === "-") return;
+  if (!session?.rollNo || session.rollNo === "-") return;
   try {
-    const response = await fetch(`${SUPABASE_URL}Credentials?roll_no=eq.${encodeURIComponent(session.rollNo)}&active_session_id=eq.${encodeURIComponent(session.deviceToken)}`, {
+    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(session.rollNo)}&is_logged_in=eq.true`, {
       method: "PATCH",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -103,66 +96,13 @@ async function releaseActiveSession(session = activeSession) {
         "Content-Type": "application/json",
         Prefer: "return=minimal"
       },
-      body: JSON.stringify({ active_session_id: null, is_logged_in: false, last_active: new Date().toISOString() }),
+      body: JSON.stringify({ is_logged_in: false }),
       keepalive: true
     });
     if (!response.ok) throw new Error(`Session release failed (${response.status}).`);
   } catch (error) {
     console.error("Unable to release the active roll number.", error);
   }
-}
-
-function isPreviousSessionStale(lastActive) {
-  if (!lastActive) return true;
-  const timestamp = Date.parse(lastActive);
-  return Number.isNaN(timestamp) || Date.now() - timestamp > SESSION_INACTIVE_LIMIT_MS;
-}
-
-async function claimCredentialSession(credential, { force = false } = {}) {
-  const previousToken = credential.active_session_id;
-  const previousSessionIsOurs = previousToken === DEVICE_TOKEN;
-  const hasOtherActiveSession = (previousToken && !previousSessionIsOurs) ||
-    (credential.is_logged_in && !previousSessionIsOurs);
-  const stale = isPreviousSessionStale(credential.last_active);
-
-  if (!force && hasOtherActiveSession && !stale) return false;
-
-  let update = supabaseClient
-    .from("Credentials")
-    .update({
-      active_session_id: DEVICE_TOKEN,
-      is_logged_in: true,
-      last_active: new Date().toISOString()
-    })
-    .eq("roll_no", credential.roll_no);
-
-  if (credential.code) update = update.eq("code", credential.code);
-  if (!force && previousToken && !previousSessionIsOurs && stale) {
-    update = update.eq("active_session_id", previousToken);
-    if (credential.last_active) update = update.lt("last_active", new Date(Date.now() - SESSION_INACTIVE_LIMIT_MS).toISOString());
-    else update = update.is("last_active", null);
-  } else if (!force) {
-    update = update.or(`active_session_id.is.null,active_session_id.eq.${DEVICE_TOKEN}`);
-  }
-
-  const { data: claimedRows, error } = await update.select("roll_no");
-  if (error) throw error;
-  return Boolean(claimedRows?.length);
-}
-
-function startSessionHeartbeat() {
-  if (sessionHeartbeat) clearInterval(sessionHeartbeat);
-  sessionHeartbeat = setInterval(() => {
-    if (!activeSession?.rollNo || !isLoggedIn) return;
-    void supabaseClient
-      .from("Credentials")
-      .update({ last_active: new Date().toISOString(), is_logged_in: true })
-      .eq("roll_no", activeSession.rollNo)
-      .eq("active_session_id", DEVICE_TOKEN)
-      .then(({ error }) => {
-        if (error) console.error("Unable to refresh the active session timestamp.", error);
-      });
-  }, 60 * 1000);
 }
 
 function formatTimestamp(timestamp) {
@@ -250,7 +190,6 @@ async function showApp(session) {
   loginModal.hidden = true;
   appView.hidden = false;
   updateUIState(true);
-  startSessionHeartbeat();
   subscribeToQuestionChanges();
   subscribeToAnswerChanges();
   subscribeToNoteChanges();
@@ -273,8 +212,8 @@ async function restoreSavedSession() {
 
   const { data: credential, error } = await supabaseClient
     .from("Credentials")
-    .select("code, role, student_name, roll_no, active_session_id, is_logged_in, last_active")
-    .eq("roll_no", rollNo)
+    .select("access_code, role, student_name, roll_number, is_logged_in")
+    .eq("roll_number", rollNo)
     .maybeSingle();
 
   if (error) {
@@ -282,13 +221,22 @@ async function restoreSavedSession() {
     return null;
   }
   if (!credential) return null;
-  if (!await claimCredentialSession(credential)) return { securityConflict: true };
+  if (credential.is_logged_in) return { securityConflict: true };
+
+  const { data: claimedRows, error: claimError } = await supabaseClient
+    .from("Credentials")
+    .update({ is_logged_in: true })
+    .eq("roll_number", rollNo)
+    .or("is_logged_in.is.null,is_logged_in.eq.false")
+    .select("roll_number");
+  if (claimError) throw claimError;
+  if (!claimedRows?.length) return { securityConflict: true };
 
   const session = {
-    name: titleCaseName(credential.student_name?.trim() || `Student ${credential.roll_no}`),
+    name: titleCaseName(credential.student_name?.trim() || `Student ${credential.roll_number}`),
     role: credential.role || "student",
-    rollNo: credential.roll_no,
-    deviceToken: DEVICE_TOKEN
+    rollNo: credential.roll_number,
+    accessCode: credential.access_code
   };
   localStorage.setItem("classPortal.activeSession", JSON.stringify(session));
   return session;
@@ -298,38 +246,48 @@ async function login(rollNo, accessCode, force = false) {
   const normalizedCode = accessCode.trim().toUpperCase();
   const { data: accessCodeRecord, error } = await supabaseClient
     .from("Credentials")
-    .select("code, role, student_name, roll_no, active_session_id, is_logged_in, last_active")
-    .eq("code", normalizedCode)
-    .eq("roll_no", rollNo)
+    .select("access_code, role, student_name, roll_number, is_logged_in")
+    .eq("access_code", normalizedCode)
+    .eq("roll_number", rollNo)
     .maybeSingle();
 
   if (error) throw error;
   if (!accessCodeRecord) return null;
-  if (!await claimCredentialSession(accessCodeRecord, { force })) return { occupied: true };
+  if (accessCodeRecord.is_logged_in && !force) return { occupied: true };
+
+  let claimQuery = supabaseClient
+    .from("Credentials")
+    .update({ is_logged_in: true })
+    .eq("access_code", normalizedCode)
+    .eq("roll_number", rollNo);
+  if (!force) claimQuery = claimQuery.or("is_logged_in.is.null,is_logged_in.eq.false");
+  const { data: claimedRows, error: claimError } = await claimQuery.select("roll_number");
+  if (claimError) throw claimError;
+  if (!claimedRows?.length) return { occupied: true };
 
   return {
-    name: titleCaseName(accessCodeRecord.student_name?.trim() || `Student ${accessCodeRecord.roll_no || rollNo}`),
+    name: titleCaseName(accessCodeRecord.student_name?.trim() || `Student ${accessCodeRecord.roll_number || rollNo}`),
     role: accessCodeRecord.role || "student",
-    rollNo: accessCodeRecord.roll_no || rollNo || "-",
-    deviceToken: DEVICE_TOKEN
+    rollNo: accessCodeRecord.roll_number || rollNo || "-",
+    accessCode: accessCodeRecord.access_code
   };
 }
 
 async function isStudentNameTaken(customName, currentRollNo) {
   const { data: matches, error } = await supabaseClient
     .from("Credentials")
-    .select("roll_no")
+    .select("roll_number")
     .ilike("student_name", customName)
     .limit(20);
   if (error) throw error;
-  return matches.some((record) => String(record.roll_no) !== String(currentRollNo));
+  return matches.some((record) => String(record.roll_number) !== String(currentRollNo));
 }
 
 async function renderCodes() {
   const codeList = document.getElementById("code-list");
   const { data: codes, error } = await supabaseClient
     .from("Credentials")
-    .select("code, role")
+    .select("access_code, role")
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -343,7 +301,7 @@ async function renderCodes() {
     const item = document.createElement("li");
     const codeElement = document.createElement("code");
     const status = document.createElement("span");
-    codeElement.textContent = codeRecord.code;
+    codeElement.textContent = codeRecord.access_code;
     status.textContent = codeRecord.role === "admin" ? "Admin" : "Active now";
     item.append(codeElement, status);
     codeList.append(item);
@@ -379,7 +337,7 @@ async function fetchAnswersForQuestion(questionId) {
   const { data: answers, error } = await supabaseClient
     .from("answers")
     .select("*")
-    .eq("question_id", questionId)
+    .eq("doubt_id", questionId)
     .order("created_at", { ascending: true });
 
   if (error) {
@@ -400,7 +358,7 @@ async function postReply(questionId) {
   const { data: insertedAnswers, error } = await supabaseClient
     .from("answers")
     .insert({
-      question_id: questionId,
+      doubt_id: questionId,
       answer_text: answerText,
       answered_by: activeSession.name,
       author_role: isAdmin ? "admin" : "student"
@@ -754,7 +712,7 @@ async function fetchPolls() {
     const { data: userVotes, error: votesError } = await supabaseClient
       .from("poll_votes")
       .select("poll_id, option_id")
-      .eq("roll_no", rollNo)
+      .eq("roll_number", rollNo)
       .in("poll_id", pollIds);
     if (votesError) console.error("Unable to fetch poll votes.", votesError);
     else votes = userVotes;
@@ -778,7 +736,7 @@ async function voteInPoll(poll, optionId, voteButton) {
   try {
     const { error: voteError } = await supabaseClient
       .from("poll_votes")
-      .insert({ poll_id: poll.poll_id, roll_no: rollNo, option_id: optionId });
+      .insert({ poll_id: poll.poll_id, roll_number: rollNo, option_id: optionId });
     if (voteError) throw voteError;
     voteRecorded = true;
 
@@ -851,8 +809,9 @@ async function syncAdminDriveFolder() {
         .insert({
           title: file.name,
           file_url: fileUrl,
-          uploaded_by: "Admin",
-          uploader_role: "admin"
+          subject: "General",
+          roll_number: "admin",
+          role: "admin"
         });
       if (insertError) throw insertError;
       addedCount += 1;
@@ -946,7 +905,7 @@ function subscribeToAnswerChanges() {
           locallyPostedAnswerIds.delete(answerId);
           return;
         }
-        if (payload.new?.question_id) void fetchAnswersForQuestion(payload.new.question_id);
+        if (payload.new?.doubt_id) void fetchAnswersForQuestion(payload.new.doubt_id);
       }
     )
     .subscribe((status) => {
@@ -1061,7 +1020,7 @@ changeNameForm.addEventListener("submit", async (event) => {
     const { error } = await supabaseClient
       .from("Credentials")
       .update({ student_name: customName })
-      .eq("roll_no", activeSession.rollNo);
+      .eq("roll_number", activeSession.rollNo);
     if (error) throw error;
 
     activeSession.name = titleCaseName(customName);
@@ -1112,7 +1071,7 @@ document.getElementById("admin-code-form").addEventListener("submit", async (eve
 
   const { error } = await supabaseClient
     .from("Credentials")
-    .insert({ code, role, student_name: studentName, roll_no: rollNo });
+    .insert({ access_code: code, role, student_name: studentName, roll_number: rollNo });
 
   if (error) {
     generateButton.disabled = false;
@@ -1148,7 +1107,7 @@ document.getElementById("question-form").addEventListener("submit", async (event
     .from("questions")
     .insert({
       author_name: activeSession.name,
-      std: getRollNo(activeSession),
+      standard: getRollNo(activeSession),
       subject,
       question_text: questionText
     });
@@ -1325,7 +1284,13 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     try {
       const { error: insertError } = await supabaseClient
         .from("notes")
-        .insert({ title, subject, file_url: fileUrl, uploaded_by: uploaderName, uploader_role: uploaderRole });
+        .insert({
+          title,
+          file_url: fileUrl,
+          subject,
+          roll_number: uploaderId,
+          role: uploaderRole
+        });
       if (insertError) {
         console.error("Database Error:", insertError);
         window.alert(`Database Error: ${insertError.message}`);
