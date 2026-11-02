@@ -970,8 +970,10 @@ function subscribeToNoteChanges() {
     .channel("realtime-notes")
     .on(
       "postgres_changes",
-      { event: "*", schema: "public", table: "notes" },
-      () => fetchNotes()
+      { event: "INSERT", schema: "public", table: "notes" },
+      () => {
+        void fetchNotes();
+      }
     )
     .subscribe((status) => {
       if (status === "CHANNEL_ERROR") console.error("Unable to subscribe to note updates.");
@@ -1365,6 +1367,8 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     }
 
     form.reset();
+    document.getElementById("note-file-input").value = "";
+    document.getElementById("note-category-input").value = "";
     document.getElementById("note-file-input").hidden = false;
     showMessage(document.getElementById("upload-message"), "Note uploaded successfully.");
     await fetchNotes();
