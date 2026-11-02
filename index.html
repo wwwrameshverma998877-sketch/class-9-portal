@@ -18,7 +18,7 @@
   <main id="welcome-page" class="welcome-page">
     <header class="topbar welcome-topbar">
       <a class="wordmark" href="#welcome" aria-label="Northstar home"><span>N</span> northstar</a>
-      <button id="open-login-button" class="button nav-login-button" type="button">Login to Portal</button>
+      <a id="open-login-button" class="nav-login-link" href="#login" aria-label="Open login form">Login</a>
     </header>
     <section id="welcome" class="welcome-hero">
       <p class="eyebrow">Class 9 Study Portal</p>
@@ -27,10 +27,31 @@
       <button id="welcome-login-button" class="button button-primary" type="button">Login to Portal <span aria-hidden="true">&#8594;</span></button>
     </section>
     <section class="welcome-features" aria-label="Portal features">
-      <article><span class="feature-index">01</span><h2>Study Notes</h2><p>Browse and share subject notes and PDFs.</p></article>
-      <article><span class="feature-index">02</span><h2>Questions &amp; Answers</h2><p>Ask doubts and learn from classmate replies.</p></article>
-      <article><span class="feature-index">03</span><h2>Class Polls</h2><p>Vote in quick polls and see results update live.</p></article>
-    </section>
+        <article>
+          <span class="feature-index">01</span>
+          <div class="feature-title">
+            <span class="feature-icon" aria-hidden="true">📘</span>
+            <h2>Study Notes</h2>
+          </div>
+          <p>Browse and share subject notes and PDFs.</p>
+        </article>
+        <article>
+          <span class="feature-index">02</span>
+          <div class="feature-title">
+            <span class="feature-icon" aria-hidden="true">💬</span>
+            <h2>Questions &amp; Answers</h2>
+          </div>
+          <p>Ask doubts and learn from classmate replies.</p>
+        </article>
+        <article>
+          <span class="feature-index">03</span>
+          <div class="feature-title">
+            <span class="feature-icon" aria-hidden="true">📊</span>
+            <h2>Class Polls</h2>
+          </div>
+          <p>Vote in quick polls and see results update live.</p>
+        </article>
+      </section>
   </main>
 
   <div id="login-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
@@ -44,7 +65,12 @@
         <label for="roll-no">Student Roll Number</label>
         <input id="roll-no" name="rollNo" type="number" min="1" max="30" step="1" placeholder="e.g. 12" required>
         <label for="access-code">Access Code / Password</label>
-        <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter your access code" required>
+        <div class="password-input-wrap">
+          <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter your access code" required>
+          <button id="toggle-password-visibility" class="password-toggle-button" type="button" aria-label="Show password" aria-pressed="false">
+            <span aria-hidden="true">👁</span>
+          </button>
+        </div>
         <p id="login-message" class="form-message" role="alert"></p>
         <button class="button button-primary button-full" type="submit">Login to Portal <span aria-hidden="true">&#8594;</span></button>
       </form>
@@ -130,92 +156,110 @@
         </div>
       </section>
 
-      <div class="content-grid">
-        <section class="section-block notes-section" aria-labelledby="notes-title">
-          <div class="section-heading compact-heading">
-            <div><p class="eyebrow">Your library</p><h3 id="notes-title">Class notes</h3></div>
-            <div class="notes-heading-actions">
-              <label class="notes-filter-label" for="notes-filter">Subject</label>
-              <select id="notes-filter" aria-label="Filter notes by subject"><option value="All">All subjects</option></select>
-              <span id="notes-count" class="count-label">0 files</span>
-            </div>
-          </div>
-          <div class="notes-list">
-          </div>
-          <form id="upload-notes-form" class="upload-notes-form">
-            <fieldset class="upload-source-options">
-              <legend>Upload source</legend>
-              <label><input type="radio" name="uploadSource" value="local" checked> Upload Local PDF</label>
-              <label><input id="drive-source-option" type="radio" name="uploadSource" value="drive"> Import from Drive Link</label>
-            </fieldset>
-            <label for="note-title-input">Note title</label>
-            <input id="note-title-input" name="noteTitle" type="text" placeholder="e.g. Algebra essentials" required>
-            <label for="note-category-input">Subject</label>
-            <select id="note-category-input" name="subject" required><option value="">Choose a subject</option></select>
-            <div class="upload-row">
-              <label class="file-input-label" for="note-file-input">PDF file</label>
-              <input id="note-file-input" name="noteFile" type="file" accept=".pdf,application/pdf" required>
-              <input id="drive-link-input" name="driveLink" type="url" placeholder="Direct Drive PDF link" hidden>
-              <button id="upload-notes-button" class="button button-outline" type="submit">Upload</button>
-            </div>
-            <div id="upload-progress-container" class="upload-progress-container" hidden>
-              <progress id="upload-progress" value="0" max="100"></progress>
-              <span id="upload-progress-label">0%</span>
-              <button id="cancel-upload-button" class="button button-outline" type="button">Cancel Upload</button>
-            </div>
-            <p id="upload-message" class="form-message" role="status"></p>
-          </form>
-          <div id="notes-list-container"></div>
-        </section>
+      <nav class="dashboard-tabs" aria-label="Main sections">
+        <button class="dashboard-tab is-active" type="button" data-panel="notes" aria-selected="true">Notes</button>
+        <button class="dashboard-tab" type="button" data-panel="doubts" aria-selected="false">Q&amp;A Doubts</button>
+        <button class="dashboard-tab" type="button" data-panel="polls" aria-selected="false">Polls</button>
+      </nav>
 
-        <section class="section-block ask-section" aria-labelledby="ask-title">
-          <p class="eyebrow">Need a hand?</p>
-          <h3 id="ask-title">Ask a question</h3>
-          <form id="question-form" class="question-form">
-            <label for="question-subject">Subject</label>
-            <select id="question-subject" required><option value="">Choose a subject</option></select>
-            <label for="question-text">Your question</label>
-            <textarea id="question-text" rows="4" placeholder="What would you like to understand better?" required></textarea>
-            <button id="post-question-button" class="button button-dark button-full" type="submit">Post a New Question <span aria-hidden="true">&#8594;</span></button>
-            <p id="question-message" class="form-message" role="status"></p>
-          </form>
+      <div class="dashboard-panel is-active" data-panel="notes">
+        <div class="content-grid">
+          <section class="section-block notes-section" aria-labelledby="notes-title">
+            <div class="section-heading compact-heading">
+              <div><p class="eyebrow">Your library</p><h3 id="notes-title">Class notes</h3></div>
+              <div class="notes-heading-actions">
+                <label class="notes-filter-label" for="notes-filter">Subject</label>
+                <select id="notes-filter" aria-label="Filter notes by subject"><option value="All">All subjects</option></select>
+                <span id="notes-count" class="count-label">0 files</span>
+              </div>
+            </div>
+            <div class="notes-list">
+            </div>
+            <button class="accordion-toggle accordion-toggle-note" type="button" aria-expanded="false">
+              <span class="accordion-plus">+</span> Upload New Note
+            </button>
+            <form id="upload-notes-form" class="upload-notes-form is-collapsed">
+              <fieldset class="upload-source-options">
+                <legend>Upload source</legend>
+                <label><input type="radio" name="uploadSource" value="local" checked> Upload Local PDF</label>
+                <label><input id="drive-source-option" type="radio" name="uploadSource" value="drive"> Import from Drive Link</label>
+              </fieldset>
+              <label for="note-title-input">Note title</label>
+              <input id="note-title-input" name="noteTitle" type="text" placeholder="e.g. Algebra essentials" required>
+              <label for="note-category-input">Subject</label>
+              <select id="note-category-input" name="subject" required><option value="">Choose a subject</option></select>
+              <div class="upload-row">
+                <label class="file-input-label" for="note-file-input">PDF file</label>
+                <input id="note-file-input" name="noteFile" type="file" accept=".pdf,application/pdf" required>
+                <input id="drive-link-input" name="driveLink" type="url" placeholder="Direct Drive PDF link" hidden>
+                <button id="upload-notes-button" class="button button-outline" type="submit">Upload</button>
+              </div>
+              <div id="upload-progress-container" class="upload-progress-container" hidden>
+                <progress id="upload-progress" value="0" max="100"></progress>
+                <span id="upload-progress-label">0%</span>
+                <button id="cancel-upload-button" class="button button-outline" type="button">Cancel Upload</button>
+              </div>
+              <p id="upload-message" class="form-message" role="status"></p>
+            </form>
+            <div id="notes-list-container"></div>
+          </section>
+
+          <section class="section-block ask-section" aria-labelledby="ask-title">
+            <p class="eyebrow">Need a hand?</p>
+            <h3 id="ask-title">Ask a question</h3>
+            <form id="question-form" class="question-form">
+              <label for="question-subject">Subject</label>
+              <select id="question-subject" required><option value="">Choose a subject</option></select>
+              <label for="question-text">Your question</label>
+              <textarea id="question-text" rows="4" placeholder="What would you like to understand better?" required></textarea>
+              <button id="post-question-button" class="button button-dark button-full" type="submit">Post a New Question <span aria-hidden="true">&#8594;</span></button>
+              <p id="question-message" class="form-message" role="status"></p>
+            </form>
+          </section>
+        </div>
+      </div>
+
+      <div class="dashboard-panel" data-panel="doubts">
+        <section class="section-block feed-section" aria-labelledby="feed-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Learn together</p><h3 id="feed-title">Questions feed</h3></div>
+            <span class="live-label"><i></i> Live discussion</span>
+          </div>
+          <div class="feed-tools" aria-label="Filter and search questions">
+            <label class="feed-subject-filter" for="question-subject-filter">Subject
+              <select id="question-subject-filter" aria-label="Filter questions by subject"><option value="All">All subjects</option></select>
+            </label>
+            <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search doubts..." autocomplete="off"></label>
+          </div>
+          <div id="questions-feed" class="feed-list">
+            <article class="question-card"><div class="feed-avatar blue">M</div><div class="question-body"><div class="question-meta"><strong>Mira Patel</strong><span>Algebra &middot; 14 min ago</span></div><p>How do we know which factorisation method to use for a quadratic expression?</p><div class="answer-count">&#8617; 3 answers</div></div></article>
+            <article class="question-card"><div class="feed-avatar orange">R</div><div class="question-body"><div class="question-meta"><strong>Rohan Mehta</strong><span>Science I &middot; 42 min ago</span></div><p>Can someone explain the difference between an atom and an ion in simple terms?</p><div class="answer-count">&#8617; 5 answers</div></div></article>
+          </div>
         </section>
       </div>
 
-      <section class="section-block polls-section" aria-labelledby="polls-title">
-        <div class="section-heading">
-          <div><p class="eyebrow">Quick classroom check-in</p><h3 id="polls-title">Class polls</h3></div>
-          <span class="live-label"><i></i> Live results</span>
-        </div>
-        <form id="poll-create-form" class="poll-create-form">
-          <label for="poll-question-input">Create a Poll</label>
-          <input id="poll-question-input" name="question" type="text" placeholder="Ask your classmates..." required maxlength="180">
-          <div id="poll-option-inputs" class="poll-option-inputs"></div>
-          <div class="poll-create-actions">
-            <button id="add-poll-option" class="button button-outline" type="button">Add option</button>
-            <button class="button button-primary" type="submit">Create Poll</button>
+      <div class="dashboard-panel" data-panel="polls">
+        <section class="section-block polls-section" aria-labelledby="polls-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Quick classroom check-in</p><h3 id="polls-title">Class polls</h3></div>
+            <span class="live-label"><i></i> Live results</span>
           </div>
-          <p id="poll-create-message" class="form-message" role="status"></p>
-        </form>
-        <div id="polls-list" class="polls-list" aria-live="polite"></div>
-      </section>
-
-      <section class="section-block feed-section" aria-labelledby="feed-title">
-        <div class="section-heading">
-          <div><p class="eyebrow">Learn together</p><h3 id="feed-title">Questions feed</h3></div>
-          <span class="live-label"><i></i> Live discussion</span>
-        </div>
-        <div class="feed-tools" aria-label="Filter and search questions">
-          <label class="feed-subject-filter" for="question-subject-filter">Subject
-            <select id="question-subject-filter" aria-label="Filter questions by subject"><option value="All">All subjects</option></select>
-          </label>
-          <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search doubts..." autocomplete="off"></label>
-        </div>
-        <div id="questions-feed" class="feed-list">
-          <article class="question-card"><div class="feed-avatar blue">M</div><div class="question-body"><div class="question-meta"><strong>Mira Patel</strong><span>Algebra &middot; 14 min ago</span></div><p>How do we know which factorisation method to use for a quadratic expression?</p><div class="answer-count">&#8617; 3 answers</div></div></article>
-          <article class="question-card"><div class="feed-avatar orange">R</div><div class="question-body"><div class="question-meta"><strong>Rohan Mehta</strong><span>Science I &middot; 42 min ago</span></div><p>Can someone explain the difference between an atom and an ion in simple terms?</p><div class="answer-count">&#8617; 5 answers</div></div></article>
-        </div>
-      </section>
+          <button class="accordion-toggle accordion-toggle-poll" type="button" aria-expanded="false">
+            <span class="accordion-plus">+</span> Create New Poll
+          </button>
+          <form id="poll-create-form" class="poll-create-form is-collapsed">
+            <label for="poll-question-input">Create a Poll</label>
+            <input id="poll-question-input" name="question" type="text" placeholder="Ask your classmates..." required maxlength="180">
+            <div id="poll-option-inputs" class="poll-option-inputs"></div>
+            <div class="poll-create-actions">
+              <button id="add-poll-option" class="button button-outline" type="button">Add option</button>
+              <button class="button button-primary" type="submit">Create Poll</button>
+            </div>
+            <p id="poll-create-message" class="form-message" role="status"></p>
+          </form>
+          <div id="polls-list" class="polls-list" aria-live="polite"></div>
+        </section>
+      </div>
     </div>
     <footer class="footer">Northstar Study Portal <span>&middot;</span> Built for curious minds</footer>
   </main>

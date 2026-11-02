@@ -1139,8 +1139,54 @@ function openLoginModal() {
   document.getElementById("roll-no").focus();
 }
 
-document.getElementById("open-login-button").addEventListener("click", openLoginModal);
+document.getElementById("open-login-button").addEventListener("click", (event) => {
+  event.preventDefault();
+  openLoginModal();
+});
 document.getElementById("welcome-login-button").addEventListener("click", openLoginModal);
+
+const passwordToggleButton = document.getElementById("toggle-password-visibility");
+const passwordInput = document.getElementById("access-code");
+if (passwordToggleButton && passwordInput) {
+  passwordToggleButton.addEventListener("click", () => {
+    const isHidden = passwordInput.type === "password";
+    passwordInput.type = isHidden ? "text" : "password";
+    passwordToggleButton.setAttribute("aria-label", isHidden ? "Hide password" : "Show password");
+    passwordToggleButton.setAttribute("aria-pressed", String(isHidden));
+    passwordToggleButton.innerHTML = isHidden ? '<span aria-hidden="true">🙈</span>' : '<span aria-hidden="true">👁</span>';
+  });
+}
+
+const dashboardTabs = document.querySelectorAll(".dashboard-tab");
+const dashboardPanels = document.querySelectorAll(".dashboard-panel");
+
+dashboardTabs.forEach((tab) => {
+  tab.addEventListener("click", () => {
+    const targetPanel = tab.dataset.panel;
+    dashboardTabs.forEach((item) => {
+      const isActive = item === tab;
+      item.classList.toggle("is-active", isActive);
+      item.setAttribute("aria-selected", String(isActive));
+    });
+    dashboardPanels.forEach((panel) => {
+      panel.classList.toggle("is-active", panel.dataset.panel === targetPanel);
+    });
+  });
+});
+
+document.querySelectorAll(".accordion-toggle").forEach((toggleButton) => {
+  toggleButton.addEventListener("click", () => {
+    const isExpanded = toggleButton.getAttribute("aria-expanded") === "true";
+    const targetForm = toggleButton.nextElementSibling;
+
+    if (!targetForm) return;
+
+    const willExpand = !isExpanded;
+    toggleButton.setAttribute("aria-expanded", String(willExpand));
+    toggleButton.querySelector(".accordion-plus").textContent = willExpand ? "−" : "+";
+    targetForm.classList.toggle("is-collapsed", !willExpand);
+  });
+});
 document.getElementById("close-login").addEventListener("click", () => {
   loginModal.hidden = true;
 });
