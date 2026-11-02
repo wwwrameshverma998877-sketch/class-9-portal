@@ -430,7 +430,7 @@ function renderReplySection(body, question) {
 }
 
 async function resolveUploaderName(note) {
-  const directName = note.uploader_name || note.uploaded_by || note.student_name || note.author_name || "";
+  const directName = note.uploaded_by || note.uploader_name || note.student_name || note.author_name || "";
   if (directName) return directName;
 
   const rollNumber = note.roll_number || note.rollNo;
@@ -468,10 +468,10 @@ function renderNoteCard(note) {
   card.className = "note-card";
   title.textContent = note.title || "Untitled note";
   metadata.className = "note-card-meta";
-  const uploaderName = note.uploader_name || note.uploaded_by || note.student_name || note.author_name || note.roll_number || "Portal member";
+  const uploaderName = note.uploaded_by || note.uploader_name || note.student_name || note.author_name || note.roll_number || "Portal member";
   uploader.textContent = `Uploaded by: ${uploaderName}`;
   roleBadge.className = "note-role-badge";
-  roleBadge.textContent = (note.role || note.uploader_role || "student").toLowerCase() === "admin" ? "Admin" : "Student";
+  roleBadge.textContent = String(note.role || "student").toLowerCase() === "admin" ? "Admin" : "Student";
   metadata.append(uploader, roleBadge);
   if (note.subject) {
     const subjectBadge = document.createElement("span");
@@ -557,7 +557,7 @@ async function fetchNotes() {
 
   const enrichedNotes = await Promise.all(notes.map(async (note) => {
     const resolvedName = await resolveUploaderName(note);
-    return { ...note, uploader_name: resolvedName };
+    return { ...note, uploaded_by: note.uploaded_by || resolvedName };
   }));
 
   allNotes = enrichedNotes;
@@ -628,17 +628,32 @@ function initializePollCreator() {
 
     submitButton.disabled = true;
     try {
+      const creatorRollNumber = String(activeSession?.roll_number || activeSession?.rollNo || "anonymous").trim();
+      if (!creatorRollNumber || creatorRollNumber === "" || creatorRollNumber === "anonymous") {
+        window.alert("Session expired. Please log in again.");
+        return;
+      }
+
+      const pollPayload = {
+        question,
+        created_by: String(creatorRollNumber)
+      };
+
       const { data: poll, error: pollError } = await supabaseClient
         .from("polls")
-        .insert({ question })
+        .insert(pollPayload)
         .select("poll_id")
         .single();
-      if (pollError) throw pollError;
+      if (pollError) {
+        console.error("Poll insert error payload:", pollError);
+        throw pollError;
+      }
 
       const { error: optionsError } = await supabaseClient
         .from("poll_options")
         .insert(options.map((optionText) => ({ poll_id: poll.poll_id, option_text: optionText, vote_count: 0 })));
       if (optionsError) {
+        console.error("Poll option insert error payload:", optionsError);
         await supabaseClient.from("polls").delete().eq("poll_id", poll.poll_id);
         throw optionsError;
       }
@@ -679,7 +694,7 @@ function renderPollCard(poll, options, userVote) {
       const fill = document.createElement("div");
       const votes = Number(option.vote_count || 0);
       const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
-      row.className = `poll-result-row${String(userVote.option_id) === String(option.option_id) ? " is-voted" : ""}`;
+      row.className = `poll-result-row${String(userVote.option_id) === String(option.id) ? " is-voted" : ""}`;
       metadata.className = "poll-result-meta";
       label.textContent = option.option_text || option.text || "Option";
       count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
@@ -708,7 +723,7 @@ function renderPollCard(poll, options, userVote) {
     label.className = "poll-vote-option";
     input.type = "radio";
     input.name = `poll-choice-${poll.poll_id}`;
-    input.value = option.option_id;
+    input.value = String(option.id ?? "");
     input.required = true;
     input.disabled = !isLoggedIn;
     optionText.textContent = option.option_text || option.text || `Option ${index + 1}`;
@@ -762,7 +777,7 @@ async function fetchPolls() {
     const { data: userVotes, error: votesError } = await supabaseClient
       .from("poll_votes")
       .select("poll_id, option_id")
-      .eq("roll_number", rollNo)
+      .eq("roll_number", String(rollNo))
       .in("poll_id", pollIds);
     if (votesError) console.error("Unable to fetch poll votes.", votesError);
     else votes = userVotes;
@@ -776,31 +791,36 @@ async function fetchPolls() {
 }
 
 async function voteInPoll(poll, optionId, voteButton) {
-  const rollNo = activeSession?.rollNo;
-  if (!isLoggedIn || !rollNo || rollNo === "-") {
+  const rollNo = activeSession?.roll_number || activeSession?.rollNo;
+  if (!isLoggedIn || !rollNo || rollNo === "-" || !optionId || String(optionId) === "undefined") {
     window.alert("Please log in with your Roll Number to vote.");
     return;
   }
   voteButton.disabled = true;
   let voteRecorded = false;
   try {
+    const sanitizedOptionId = Number(optionId);
+    if (!Number.isFinite(sanitizedOptionId)) {
+      throw new Error("Poll option ID is invalid.");
+    }
+
     const { error: voteError } = await supabaseClient
       .from("poll_votes")
-      .insert({ poll_id: poll.poll_id, roll_number: rollNo, option_id: optionId });
+      .insert({ poll_id: poll.poll_id, roll_number: String(rollNo), option_id: sanitizedOptionId });
     if (voteError) throw voteError;
     voteRecorded = true;
 
     const { data: option, error: optionError } = await supabaseClient
       .from("poll_options")
       .select("vote_count")
-      .eq("option_id", optionId)
+      .eq("id", sanitizedOptionId)
       .single();
     if (optionError) throw optionError;
 
     const { error: updateError } = await supabaseClient
       .from("poll_options")
       .update({ vote_count: Number(option.vote_count || 0) + 1 })
-      .eq("option_id", optionId);
+      .eq("id", sanitizedOptionId);
     if (updateError) throw updateError;
     await fetchPolls();
   } catch (error) {
@@ -1143,16 +1163,25 @@ document.getElementById("admin-code-form").addEventListener("submit", async (eve
 
 document.getElementById("question-form").addEventListener("submit", async (event) => {
   event.preventDefault();
-  if (!isLoggedIn) {
+  if (!isLoggedIn || !activeSession) {
     window.alert("Please log in to participate.");
     return;
   }
-  if (!activeSession || activeSession.role === "admin") return;
+
+  const normalizedRole = String(activeSession.role || "").toLowerCase();
+  if (normalizedRole === "admin") {
+    window.alert("Admin accounts cannot post student questions.");
+    return;
+  }
 
   const form = event.currentTarget;
   const submitButton = form.querySelector("button[type='submit']");
   const subject = document.getElementById("question-subject").value;
   const questionText = document.getElementById("question-text").value.trim();
+  if (!subject || !questionText) {
+    showMessage(document.getElementById("question-message"), "Please choose a subject and write your question.", true);
+    return;
+  }
   submitButton.disabled = true;
 
   const { error } = await supabaseClient
@@ -1165,7 +1194,8 @@ document.getElementById("question-form").addEventListener("submit", async (event
     });
 
   if (error) {
-    showMessage(document.getElementById("question-message"), "Unable to submit question.", true);
+    console.error("Unable to submit question.", error);
+    showMessage(document.getElementById("question-message"), error.message || "Unable to submit question.", true);
   } else {
     form.reset();
     showMessage(document.getElementById("question-message"), "Your question is now in the feed.");
@@ -1335,18 +1365,26 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
 
     let insertedNote = null;
     try {
+      const notePayload = {
+        title: String(title || "Untitled note").trim(),
+        file_url: String(fileUrl || "").trim(),
+        uploaded_by: String(activeSession?.name || activeSession?.roll_number || activeSession?.rollNo || "anonymous").trim(),
+        role: String(activeSession?.role || uploaderRole || "student").trim() || "student",
+        roll_number: String(activeSession?.roll_number || activeSession?.rollNo || uploaderId || "anonymous").trim(),
+        subject: String(subject || "General").trim() || "General"
+      };
+
+      const hasRequiredNoteValues = notePayload.title && notePayload.file_url && notePayload.uploaded_by && notePayload.roll_number && notePayload.subject;
+      if (!hasRequiredNoteValues) {
+        throw new Error("Missing required note fields before insert: title, file_url, uploaded_by, roll_number, subject.");
+      }
+
       const { data, error: insertError } = await supabaseClient
         .from("notes")
-        .insert({
-          title,
-          file_url: fileUrl,
-          subject,
-          roll_number: uploaderId,
-          role: uploaderRole
-        })
+        .insert(notePayload)
         .select();
       if (insertError) {
-        console.error("Database Error:", insertError);
+        console.error("Note insert error payload:", insertError);
         window.alert(`Database Error: ${insertError.message}`);
         return;
       }
@@ -1360,7 +1398,7 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     if (insertedNote) {
       const enrichedNote = {
         ...insertedNote,
-        uploader_name: activeSession?.name || "Portal member"
+        uploaded_by: uploaderName
       };
       allNotes = [enrichedNote, ...allNotes];
       renderNotes();
