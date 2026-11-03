@@ -184,9 +184,10 @@ function getRollNo(record) {
 }
 
 async function releaseActiveSession(session = activeSession) {
-  if (!session?.rollNo || session.rollNo === "-") return;
+  const currentSession = session || activeSession;
+  if (!currentSession?.rollNo || currentSession.rollNo === "-") return;
   try {
-    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(session.rollNo)}`, {
+    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(currentSession.rollNo)}`, {
       method: "PATCH",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -1397,8 +1398,8 @@ changeNameForm.addEventListener("submit", async (event) => {
   }
 });
 
-document.getElementById("logout-button").addEventListener("click", () => {
-  void releaseActiveSession();
+document.getElementById("logout-button").addEventListener("click", async () => {
+  await releaseActiveSession();
   if (sessionHeartbeat) clearInterval(sessionHeartbeat);
   sessionHeartbeat = null;
   activeSession = null;
@@ -1407,7 +1408,6 @@ document.getElementById("logout-button").addEventListener("click", () => {
   localStorage.removeItem("northstar_session");
   localStorage.removeItem("northstar_auth_token");
   localStorage.removeItem("northstar_user_roll");
-  localStorage.removeItem("classPortal.deviceToken");
   localStorage.removeItem("classPortal.activeSession");
   loginForm.reset();
   showMessage(loginMessage, "");
