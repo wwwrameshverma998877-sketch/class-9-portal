@@ -280,15 +280,26 @@ function renderUser(session) {
   if (questionSection) questionSection.hidden = String(session.role || "").toLowerCase() === "admin";
 }
 
+function getOrCreateDeviceId() {
+  let deviceId = localStorage.getItem("northstar_device_id");
+  if (!deviceId) {
+    deviceId = "device_" + Math.random().toString(36).substring(2, 15) + "_" + Date.now();
+    localStorage.setItem("northstar_device_id", deviceId);
+  }
+  return deviceId;
+}
+
 function persistSession(session) {
   if (!session) return;
+  const deviceId = getOrCreateDeviceId();
   const appSession = {
     name: session.name || "",
     role: session.role || "student",
     rollNo: session.rollNo || session.roll_number || "",
     roll_number: session.roll_number || session.rollNo || "",
     accessCode: session.accessCode || session.access_code || "",
-    access_code: session.access_code || session.accessCode || ""
+    access_code: session.access_code || session.accessCode || "",
+    deviceId
   };
 
   try {
@@ -296,8 +307,14 @@ function persistSession(session) {
       roll_number: appSession.roll_number,
       access_code: appSession.access_code,
       name: appSession.name,
-      role: appSession.role
+      role: appSession.role,
+      device_id: deviceId,
+      deviceId
     }));
+    localStorage.setItem("northstar_auth_token", "true");
+    if (appSession.roll_number) {
+      localStorage.setItem("northstar_user_roll", String(appSession.roll_number));
+    }
   } catch (error) {
     console.error("Unable to persist Northstar session.", error);
   }
@@ -312,6 +329,8 @@ function persistSession(session) {
 function clearPersistedSession() {
   try {
     localStorage.removeItem("northstar_session");
+    localStorage.removeItem("northstar_auth_token");
+    localStorage.removeItem("northstar_user_roll");
   } catch (error) {
     console.error("Unable to clear saved portal session.", error);
   }
@@ -325,7 +344,8 @@ function normalizeStoredSession(rawSession) {
     rollNo: rawSession.rollNo || rawSession.roll_number || "",
     roll_number: rawSession.roll_number || rawSession.rollNo || "",
     accessCode: rawSession.accessCode || rawSession.access_code || "",
-    access_code: rawSession.access_code || rawSession.accessCode || ""
+    access_code: rawSession.access_code || rawSession.accessCode || "",
+    deviceId: rawSession.deviceId || rawSession.device_id || ""
   };
   return normalized.rollNo || normalized.roll_number ? normalized : null;
 }
@@ -352,7 +372,14 @@ async function bypassLoginToDashboard(session) {
   const rawSession = normalizeStoredSession(session);
   const rollNo = rawSession?.rollNo || rawSession?.roll_number;
   const accessCode = rawSession?.accessCode || rawSession?.access_code;
+  const savedDeviceId = localStorage.getItem("northstar_device_id") || getOrCreateDeviceId();
+  const sessionDeviceId = rawSession?.deviceId || rawSession?.device_id || "";
+
   if (!rollNo || !accessCode) return false;
+  if (sessionDeviceId && savedDeviceId && sessionDeviceId !== savedDeviceId) {
+    clearPersistedSession();
+    return false;
+  }
 
   try {
     const verifiedSession = await login(String(rollNo), String(accessCode), false);
@@ -362,6 +389,57 @@ async function bypassLoginToDashboard(session) {
     return true;
   } catch (error) {
     console.error("Unable to auto-restore the saved portal session.", error);
+    return false;
+  }
+}
+
+async function autoLoginFromStoredToken() {
+  const authToken = localStorage.getItem("northstar_auth_token");
+  const storedRollNo = localStorage.getItem("northstar_user_roll");
+  if (!authToken || !storedRollNo) return false;
+
+  const storedSession = localStorage.getItem("northstar_session");
+  if (storedSession) {
+    try {
+      const parsedSession = JSON.parse(storedSession);
+      const bypassed = await bypassLoginToDashboard(parsedSession);
+      if (bypassed) return true;
+    } catch (error) {
+      console.error("Unable to parse the stored Northstar auth session.", error);
+    }
+  }
+
+  try {
+    const { data: credential, error } = await supabaseClient
+      .from("Credentials")
+      .select("access_code, role, student_name, roll_number, is_logged_in")
+      .eq("roll_number", storedRollNo)
+      .maybeSingle();
+
+    if (error || !credential) {
+      clearPersistedSession();
+      return false;
+    }
+
+    const currentDeviceId = getOrCreateDeviceId();
+    const savedDeviceId = localStorage.getItem("northstar_device_id") || currentDeviceId;
+    const sessionDeviceId = localStorage.getItem("northstar_device_id") || "";
+    if (sessionDeviceId && savedDeviceId && sessionDeviceId !== currentDeviceId) {
+      clearPersistedSession();
+      return false;
+    }
+
+    const verifiedSession = await login(String(storedRollNo), String(credential.access_code), false);
+    if (!verifiedSession || verifiedSession.occupied) {
+      clearPersistedSession();
+      return false;
+    }
+
+    persistSession(verifiedSession);
+    await showApp(verifiedSession);
+    return true;
+  } catch (error) {
+    console.error("Unable to auto-login from stored auth token.", error);
     return false;
   }
 }
@@ -1317,6 +1395,8 @@ document.getElementById("logout-button").addEventListener("click", () => {
   isAdmin = false;
   updateUIState(false);
   localStorage.removeItem("northstar_session");
+  localStorage.removeItem("northstar_auth_token");
+  localStorage.removeItem("northstar_user_roll");
   localStorage.removeItem("classPortal.activeSession");
   loginForm.reset();
   showMessage(loginMessage, "");
@@ -1660,6 +1740,16 @@ async function initApp() {
 }
 
 async function initializeApp() {
+  const authTokenExists = Boolean(localStorage.getItem("northstar_auth_token"));
+  const storedRollNo = localStorage.getItem("northstar_user_roll");
+
+  if (authTokenExists && storedRollNo) {
+    const bypassedFromToken = await autoLoginFromStoredToken();
+    if (bypassedFromToken) {
+      return;
+    }
+  }
+
   const savedNorthstarSession = localStorage.getItem("northstar_session");
   if (savedNorthstarSession) {
     try {
