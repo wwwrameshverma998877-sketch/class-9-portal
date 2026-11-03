@@ -1327,6 +1327,7 @@ dashboardTabs.forEach((tab) => {
     dashboardTabs.forEach((item) => {
       const isActive = item === tab;
       item.classList.toggle("is-active", isActive);
+      item.classList.toggle("active", isActive);
       item.setAttribute("aria-selected", String(isActive));
     });
     dashboardPanels.forEach((panel) => {
