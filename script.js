@@ -280,8 +280,59 @@ function renderUser(session) {
   if (questionSection) questionSection.hidden = String(session.role || "").toLowerCase() === "admin";
 }
 
+function persistSession(session) {
+  if (!session) return;
+  const appSession = {
+    name: session.name || "",
+    role: session.role || "student",
+    rollNo: session.rollNo || session.roll_number || "",
+    roll_number: session.roll_number || session.rollNo || "",
+    accessCode: session.accessCode || session.access_code || "",
+    access_code: session.access_code || session.accessCode || ""
+  };
+
+  try {
+    localStorage.setItem("northstar_session", JSON.stringify({
+      roll_number: appSession.roll_number,
+      access_code: appSession.access_code,
+      name: appSession.name,
+      role: appSession.role
+    }));
+  } catch (error) {
+    console.error("Unable to persist Northstar session.", error);
+  }
+
+  try {
+    localStorage.setItem("classPortal.activeSession", JSON.stringify(appSession));
+  } catch (error) {
+    console.error("Unable to persist legacy portal session.", error);
+  }
+}
+
+function clearPersistedSession() {
+  try {
+    localStorage.removeItem("northstar_session");
+  } catch (error) {
+    console.error("Unable to clear saved portal session.", error);
+  }
+}
+
+function normalizeStoredSession(rawSession) {
+  if (!rawSession) return null;
+  const normalized = {
+    name: rawSession.name || rawSession.student_name || "",
+    role: rawSession.role || "student",
+    rollNo: rawSession.rollNo || rawSession.roll_number || "",
+    roll_number: rawSession.roll_number || rawSession.rollNo || "",
+    accessCode: rawSession.accessCode || rawSession.access_code || "",
+    access_code: rawSession.access_code || rawSession.accessCode || ""
+  };
+  return normalized.rollNo || normalized.roll_number ? normalized : null;
+}
+
 async function showApp(session) {
   activeSession = session;
+  persistSession(session);
   isAdmin = session.role?.toLowerCase() === "admin";
   renderUser(session);
   trackStudentActivity("login");
@@ -297,17 +348,38 @@ async function showApp(session) {
   await Promise.all([renderCodes(), fetchQuestions(), fetchNotes(), fetchPolls()]);
 }
 
+async function bypassLoginToDashboard(session) {
+  const rawSession = normalizeStoredSession(session);
+  const rollNo = rawSession?.rollNo || rawSession?.roll_number;
+  const accessCode = rawSession?.accessCode || rawSession?.access_code;
+  if (!rollNo || !accessCode) return false;
+
+  try {
+    const verifiedSession = await login(String(rollNo), String(accessCode), false);
+    if (!verifiedSession || verifiedSession.occupied) return false;
+    persistSession(verifiedSession);
+    await showApp(verifiedSession);
+    return true;
+  } catch (error) {
+    console.error("Unable to auto-restore the saved portal session.", error);
+    return false;
+  }
+}
+
 async function restoreSavedSession() {
-  const savedSession = localStorage.getItem("classPortal.activeSession");
+  const rawNorthstarSession = localStorage.getItem("northstar_session");
+  const legacySession = localStorage.getItem("classPortal.activeSession");
+  const savedSession = rawNorthstarSession || legacySession;
   let storedSession;
   try {
     storedSession = savedSession ? JSON.parse(savedSession) : null;
   } catch (error) {
     console.error("Unable to parse saved session.", error);
-    localStorage.removeItem("classPortal.activeSession");
     return null;
   }
-  const rollNo = storedSession?.rollNo;
+
+  const normalizedSession = normalizeStoredSession(storedSession);
+  const rollNo = normalizedSession?.rollNo || normalizedSession?.roll_number;
   if (!rollNo) return null;
 
   const { data: credential, error } = await supabaseClient
@@ -1105,7 +1177,7 @@ loginForm.addEventListener("submit", async (event) => {
         try {
           const forcedSession = await login(rollNo, formData.get("accessCode"), true);
           if (!forcedSession || forcedSession.occupied) throw new Error("Unable to claim this Roll Number.");
-          localStorage.setItem("classPortal.activeSession", JSON.stringify(forcedSession));
+          persistSession(forcedSession);
           loginForm.reset();
           showMessage(loginMessage, "");
           await showApp(forcedSession);
@@ -1122,7 +1194,7 @@ loginForm.addEventListener("submit", async (event) => {
       showMessage(loginMessage, "That access code was not found.", true);
       return;
     }
-    localStorage.setItem("classPortal.activeSession", JSON.stringify(session));
+    persistSession(session);
     loginForm.reset();
     showMessage(loginMessage, "");
     await showApp(session);
@@ -1244,6 +1316,7 @@ document.getElementById("logout-button").addEventListener("click", () => {
   activeSession = null;
   isAdmin = false;
   updateUIState(false);
+  localStorage.removeItem("northstar_session");
   localStorage.removeItem("classPortal.activeSession");
   loginForm.reset();
   showMessage(loginMessage, "");
@@ -1587,6 +1660,19 @@ async function initApp() {
 }
 
 async function initializeApp() {
+  const savedNorthstarSession = localStorage.getItem("northstar_session");
+  if (savedNorthstarSession) {
+    try {
+      const session = JSON.parse(savedNorthstarSession);
+      const bypassed = await bypassLoginToDashboard(session);
+      if (bypassed) {
+        return;
+      }
+    } catch (error) {
+      console.error("Unable to parse the persistent Northstar session.", error);
+    }
+  }
+
   let restoredSession;
   try {
     restoredSession = await restoreSavedSession();
