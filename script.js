@@ -186,7 +186,7 @@ function getRollNo(record) {
 async function releaseActiveSession(session = activeSession) {
   if (!session?.rollNo || session.rollNo === "-") return;
   try {
-    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(session.rollNo)}&is_logged_in=eq.true`, {
+    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(session.rollNo)}`, {
       method: "PATCH",
       headers: {
         apikey: SUPABASE_ANON_KEY,
@@ -194,7 +194,7 @@ async function releaseActiveSession(session = activeSession) {
         "Content-Type": "application/json",
         Prefer: "return=minimal"
       },
-      body: JSON.stringify({ is_logged_in: false }),
+      body: JSON.stringify({ current_session_token: null }),
       keepalive: true
     });
     if (!response.ok) throw new Error(`Session release failed (${response.status}).`);
@@ -280,6 +280,15 @@ function renderUser(session) {
   if (questionSection) questionSection.hidden = String(session.role || "").toLowerCase() === "admin";
 }
 
+function getDeviceToken() {
+  let token = localStorage.getItem("classPortal.deviceToken");
+  if (!token) {
+    token = "token_" + Math.random().toString(36).substring(2) + "_" + Date.now();
+    localStorage.setItem("classPortal.deviceToken", token);
+  }
+  return token;
+}
+
 function getOrCreateDeviceId() {
   let deviceId = localStorage.getItem("northstar_device_id");
   if (!deviceId) {
@@ -331,6 +340,7 @@ function clearPersistedSession() {
     localStorage.removeItem("northstar_session");
     localStorage.removeItem("northstar_auth_token");
     localStorage.removeItem("northstar_user_roll");
+    localStorage.removeItem("classPortal.deviceToken");
   } catch (error) {
     console.error("Unable to clear saved portal session.", error);
   }
@@ -412,7 +422,7 @@ async function autoLoginFromStoredToken() {
   try {
     const { data: credential, error } = await supabaseClient
       .from("Credentials")
-      .select("access_code, role, student_name, roll_number, is_logged_in")
+      .select("access_code, role, student_name, roll_number, current_session_token")
       .eq("roll_number", storedRollNo)
       .maybeSingle();
 
@@ -421,10 +431,8 @@ async function autoLoginFromStoredToken() {
       return false;
     }
 
-    const currentDeviceId = getOrCreateDeviceId();
-    const savedDeviceId = localStorage.getItem("northstar_device_id") || currentDeviceId;
-    const sessionDeviceId = localStorage.getItem("northstar_device_id") || "";
-    if (sessionDeviceId && savedDeviceId && sessionDeviceId !== currentDeviceId) {
+    const currentDeviceToken = getDeviceToken();
+    if (credential.current_session_token && credential.current_session_token !== currentDeviceToken) {
       clearPersistedSession();
       return false;
     }
@@ -460,9 +468,10 @@ async function restoreSavedSession() {
   const rollNo = normalizedSession?.rollNo || normalizedSession?.roll_number;
   if (!rollNo) return null;
 
+  const myToken = getDeviceToken();
   const { data: credential, error } = await supabaseClient
     .from("Credentials")
-    .select("access_code, role, student_name, roll_number, is_logged_in")
+    .select("access_code, role, student_name, roll_number, current_session_token")
     .eq("roll_number", rollNo)
     .maybeSingle();
 
@@ -471,13 +480,12 @@ async function restoreSavedSession() {
     return null;
   }
   if (!credential) return null;
-  if (credential.is_logged_in) return { securityConflict: true };
+  if (credential.current_session_token && credential.current_session_token !== myToken) return { securityConflict: true };
 
   const { data: claimedRows, error: claimError } = await supabaseClient
     .from("Credentials")
-    .update({ is_logged_in: true })
+    .update({ current_session_token: myToken })
     .eq("roll_number", rollNo)
-    .or("is_logged_in.is.null,is_logged_in.eq.false")
     .select("roll_number");
   if (claimError) throw claimError;
   if (!claimedRows?.length) return { securityConflict: true };
@@ -494,24 +502,26 @@ async function restoreSavedSession() {
 
 async function login(rollNo, accessCode, force = false) {
   const normalizedCode = accessCode.trim().toUpperCase();
+  const myToken = getDeviceToken();
   const { data: accessCodeRecord, error } = await supabaseClient
     .from("Credentials")
-    .select("access_code, role, student_name, roll_number, is_logged_in")
+    .select("access_code, role, student_name, roll_number, current_session_token")
     .eq("access_code", normalizedCode)
     .eq("roll_number", rollNo)
     .maybeSingle();
 
   if (error) throw error;
   if (!accessCodeRecord) return null;
-  if (accessCodeRecord.is_logged_in && !force) return { occupied: true };
 
-  let claimQuery = supabaseClient
+  const isOccupiedByOther = Boolean(accessCodeRecord.current_session_token && accessCodeRecord.current_session_token !== myToken);
+  if (isOccupiedByOther && !force) return { occupied: true };
+
+  const { data: claimedRows, error: claimError } = await supabaseClient
     .from("Credentials")
-    .update({ is_logged_in: true })
+    .update({ current_session_token: myToken })
     .eq("access_code", normalizedCode)
-    .eq("roll_number", rollNo);
-  if (!force) claimQuery = claimQuery.or("is_logged_in.is.null,is_logged_in.eq.false");
-  const { data: claimedRows, error: claimError } = await claimQuery.select("roll_number");
+    .eq("roll_number", rollNo)
+    .select("roll_number");
   if (claimError) throw claimError;
   if (!claimedRows?.length) return { occupied: true };
 
@@ -1397,6 +1407,7 @@ document.getElementById("logout-button").addEventListener("click", () => {
   localStorage.removeItem("northstar_session");
   localStorage.removeItem("northstar_auth_token");
   localStorage.removeItem("northstar_user_roll");
+  localStorage.removeItem("classPortal.deviceToken");
   localStorage.removeItem("classPortal.activeSession");
   loginForm.reset();
   showMessage(loginMessage, "");
