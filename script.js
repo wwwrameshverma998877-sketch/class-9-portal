@@ -1399,7 +1399,10 @@ changeNameForm.addEventListener("submit", async (event) => {
   }
 });
 
-document.getElementById("logout-button").addEventListener("click", async () => {
+const logoutButton = document.getElementById("logout-button");
+const floatingLogoutButton = document.getElementById("floating-logout-button");
+
+async function performLogout() {
   await releaseActiveSession();
   if (sessionHeartbeat) clearInterval(sessionHeartbeat);
   sessionHeartbeat = null;
@@ -1410,10 +1413,23 @@ document.getElementById("logout-button").addEventListener("click", async () => {
   localStorage.removeItem("northstar_auth_token");
   localStorage.removeItem("northstar_user_roll");
   localStorage.removeItem("classPortal.activeSession");
+  localStorage.removeItem("classPortal.deviceToken");
   loginForm.reset();
   showMessage(loginMessage, "");
   showWelcomePage();
-});
+}
+
+if (logoutButton) {
+  logoutButton.addEventListener("click", () => {
+    void performLogout();
+  });
+}
+
+if (floatingLogoutButton) {
+  floatingLogoutButton.addEventListener("click", () => {
+    void performLogout();
+  });
+}
 
 window.addEventListener("beforeunload", () => {
   void releaseActiveSession();
