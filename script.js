@@ -2,8 +2,6 @@ const SUPABASE_URL = "https://jscgedmfzdxpbtmokazf.supabase.co/rest/v1/";
 const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpzY2dlZG1memR4cGJ0bW9rYXpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODkyMTYwNjAsImV4cCI6MjEwNDc5MjA2MH0.bGFzIlqtQYfByOC9dGNEihIhX-jfX72g7tZ8-wZeTeg";
 const SUPABASE_PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "");
 const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
-const DRIVE_FOLDER_ID = "1kvzcnMaijD6g06GT5loXUtJ1xom7N2t0";
-const DRIVE_API_KEY = "AIzaSyDL9mJG7q0JFRXSKNjLKIdYR4nyS8I5ZE0";
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
 const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
 let activeSession = null;
@@ -21,7 +19,6 @@ let realtimeAnswersChannel = null;
 let realtimePollsChannel = null;
 let initPromise = null;
 let notesListObserver = null;
-let driveSyncPromise = null;
 let activeNoteUploadXhr = null;
 let noteUploadCancelRequested = false;
 let sessionHeartbeat = null;
@@ -37,23 +34,10 @@ const adminPanel = document.querySelector(".admin-panel");
 const questionSection = document.querySelector(".ask-section");
 
 function syncUploadSourceUI() {
-  const localSource = document.querySelector("input[name='uploadSource'][value='local']");
-  const driveSource = document.getElementById("drive-source-option");
   const fileInput = document.getElementById("note-file-input");
-  const driveLinkInput = document.getElementById("drive-link-input");
-  if (!localSource || !driveSource || !fileInput || !driveLinkInput) return;
-
-  const isDriveAllowed = isLoggedIn && isAdmin;
-  driveSource.disabled = !isDriveAllowed;
-  if (!isDriveAllowed && driveSource.checked) localSource.checked = true;
-
-  const isDriveSource = driveSource.checked && isDriveAllowed;
-  fileInput.hidden = isDriveSource;
-  fileInput.required = !isDriveSource;
+  if (!fileInput) return;
   fileInput.disabled = !isLoggedIn;
-  driveLinkInput.hidden = !isDriveSource;
-  driveLinkInput.required = isDriveSource;
-  driveLinkInput.disabled = !isDriveAllowed;
+  fileInput.required = true;
 }
 
 const FOCUS_ACTIVITY_KEY = "classPortal.studentFocusActivity";
@@ -243,68 +227,6 @@ function populateSubjectOptions() {
     questionFilter.add(new Option(subject, subject));
     noteCategory.add(new Option(subject, subject));
     notesFilter.add(new Option(subject, subject));
-  });
-}
-
-async function fetchGoogleDriveNotes() {
-  try {
-    const query = encodeURIComponent(`'${DRIVE_FOLDER_ID}' in parents and trashed = false`);
-    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&key=${DRIVE_API_KEY}&fields=files(id,name,mimeType,webViewLink,webContentLink,iconLink,size)`;
-    const response = await fetch(url);
-    const data = await response.json();
-
-    if (data.error) {
-      console.error("Google Drive API Error:", data.error.message);
-      return [];
-    }
-
-    return (data.files || []).filter((file) => {
-      if (!file || !file.name || typeof file.name !== "string") return false;
-      return Boolean(file.webViewLink || file.webContentLink);
-    });
-  } catch (error) {
-    console.error("Failed to fetch notes from Google Drive:", error);
-    return [];
-  }
-}
-
-async function renderGoogleDriveNotes() {
-  const notesContainer = document.getElementById("google-drive-notes-container");
-  if (!notesContainer) return;
-
-  notesContainer.innerHTML = '<p style="margin: 0; color: #94a3b8; text-align: center;">Loading latest notes from Google Drive...</p>';
-  const files = await fetchGoogleDriveNotes();
-
-  if (!files.length) {
-    notesContainer.innerHTML = '<p style="margin: 0; color: #94a3b8; text-align: center;">No notes found in the Drive folder yet. Drop a PDF in Google Drive to see it here!</p>';
-    return;
-  }
-
-  notesContainer.innerHTML = "";
-  files.forEach((file) => {
-    const card = document.createElement("div");
-    card.className = "note-card";
-    card.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 14px 16px; border: 1px solid rgba(17, 94, 89, 0.12); border-radius: 12px; background: rgba(17, 94, 89, 0.04);";
-
-    const info = document.createElement("div");
-    info.style.cssText = "display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;";
-    info.innerHTML = `
-      <div style="display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: rgba(20, 184, 166, 0.12); color: #0f766e; font-size: 18px;">📄</div>
-      <div style="min-width: 0; flex: 1;">
-        <h4 style="margin: 0; color: #17222d; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${file.name}</h4>
-        <small style="color: #64748b; font-size: 0.75rem;">Google Drive file</small>
-      </div>
-    `;
-
-    const actions = document.createElement("div");
-    actions.style.cssText = "display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap;";
-    actions.innerHTML = `
-      <a href="${file.webViewLink}" target="_blank" rel="noreferrer" style="padding: 8px 12px; border-radius: 8px; background: #0f766e; color: #ffffff; text-decoration: none; font-size: 0.78rem; font-weight: 700;">View</a>
-      ${file.webContentLink ? `<a href="${file.webContentLink}" target="_blank" rel="noreferrer" download style="padding: 8px 12px; border-radius: 8px; background: rgba(17, 94, 89, 0.08); color: #0f766e; text-decoration: none; font-size: 0.78rem; font-weight: 700;">Download</a>` : ""}
-    `;
-
-    card.append(info, actions);
-    notesContainer.appendChild(card);
   });
 }
 
@@ -848,8 +770,6 @@ async function fetchNotes() {
   const notesContainer = document.getElementById("notes-list-container");
   if (!notesContainer) return;
 
-  await syncAdminDriveFolder();
-
   const { data: notes, error } = await supabaseClient
     .from("notes")
     .select("*")
@@ -1146,61 +1066,6 @@ function subscribeToPollChanges() {
       if (status === "CHANNEL_ERROR") console.error("Unable to subscribe to poll updates.");
     });
   return realtimePollsChannel;
-}
-
-async function syncAdminDriveFolder() {
-  if (!isAdmin) return;
-  if (driveSyncPromise) return driveSyncPromise;
-
-  driveSyncPromise = (async () => {
-    const driveQuery = `'${DRIVE_FOLDER_ID}'+in+parents+and+mimeType='application/pdf'+and+trashed=false`;
-    const driveUrl = `https://www.googleapis.com/drive/v3/files?q=${driveQuery}&key=${DRIVE_API_KEY}&fields=files(id,name,webViewLink)`;
-    const response = await fetch(driveUrl);
-    if (!response.ok) throw new Error(`Google Drive request failed (${response.status}).`);
-    const { files = [] } = await response.json();
-    let addedCount = 0;
-
-    for (const file of files) {
-      const fileUrl = `https://drive.google.com/file/d/${file.id}/view`;
-      const { data: titleMatches, error: titleLookupError } = await supabaseClient
-        .from("notes")
-        .select("id")
-        .eq("title", file.name)
-        .limit(1);
-
-      if (titleLookupError) throw titleLookupError;
-      if (titleMatches?.length) continue;
-
-      const { data: urlMatches, error: urlLookupError } = await supabaseClient
-        .from("notes")
-        .select("id")
-        .eq("file_url", fileUrl)
-        .limit(1);
-
-      if (urlLookupError) throw urlLookupError;
-      if (urlMatches?.length) continue;
-
-      const { error: insertError } = await supabaseClient
-        .from("notes")
-        .insert({
-          title: file.name,
-          file_url: fileUrl,
-          subject: "General",
-          roll_number: "admin",
-          role: "admin"
-        });
-      if (insertError) throw insertError;
-      addedCount += 1;
-    }
-
-    return addedCount;
-  })().catch((error) => {
-    console.error("Unable to sync Admin notes from Drive.", error);
-  }).finally(() => {
-    driveSyncPromise = null;
-  });
-
-  return driveSyncPromise;
 }
 
 function renderQuestionCard(item) {
@@ -1657,30 +1522,14 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
 
   const form = event.currentTarget;
   const uploadButton = form.querySelector("button[type='submit']");
-  const source = form.querySelector("input[name='uploadSource']:checked")?.value;
   const title = document.getElementById("note-title-input").value.trim();
   const subject = document.getElementById("note-category-input").value;
   const file = document.getElementById("note-file-input").files[0];
-  const driveLink = document.getElementById("drive-link-input").value.trim();
   const uploaderRole = isAdmin ? "admin" : "student";
   const uploaderName = activeSession?.name || "Student";
   const uploaderId = activeSession?.rollNo || "student";
 
-  if (source === "drive") {
-    if (!isAdmin) {
-      window.alert("Only Admin users can import Drive links.");
-      return;
-    }
-    try {
-      const parsedDriveUrl = new URL(driveLink);
-      if (!parsedDriveUrl.hostname.endsWith("drive.google.com")) throw new Error("Enter a valid Google Drive URL.");
-    } catch (error) {
-      window.alert(error.message || "Enter a valid Google Drive URL.");
-      return;
-    }
-  }
-
-  if (source === "local" && (!file || file.type !== "application/pdf")) {
+  if (!file || file.type !== "application/pdf") {
     window.alert("Please select a PDF file only.");
     return;
   }
@@ -1689,18 +1538,9 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
     document.getElementById("note-category-input").focus();
     return;
   }
-  if (source === "local" && file.size > MAX_PDF_SIZE) {
+  if (file.size > MAX_PDF_SIZE) {
     window.alert("File size exceeds the 10 MB limit. Please upload a smaller PDF.");
     document.getElementById("note-file-input").value = "";
-    return;
-  }
-  if (uploaderRole === "admin") {
-    if (source !== "drive") {
-      window.alert("Admins should import PDFs using a Google Drive link.");
-      return;
-    }
-  } else if (source !== "local") {
-    window.alert("Students can upload local PDF files only.");
     return;
   }
 
@@ -1712,29 +1552,26 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
   const cancelButton = document.getElementById("cancel-upload-button");
   progress.value = 0;
   progressLabel.textContent = "0%";
-  progressContainer.hidden = source !== "local";
-  cancelButton.hidden = source !== "local";
+  progressContainer.hidden = false;
+  cancelButton.hidden = false;
   noteUploadCancelRequested = false;
   try {
-    let fileUrl = source === "drive" ? driveLink : null;
-    if (uploaderRole === "student") {
-      const filePath = `${uploaderId || "student"}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
-      try {
-        await uploadPdfWithProgress(file, filePath);
-        progressContainer.hidden = true;
-        cancelButton.hidden = true;
-      } catch (error) {
-        if (error.name === "AbortError") {
-          window.alert("Upload canceled.");
-          return;
-        }
-        console.error("Storage Upload Error:", error);
-        window.alert(`Storage Upload Error: ${error.message}`);
+    const filePath = `${uploaderId || "student"}/${Date.now()}-${file.name.replace(/[^a-zA-Z0-9._-]/g, "-")}`;
+    try {
+      await uploadPdfWithProgress(file, filePath);
+      progressContainer.hidden = true;
+      cancelButton.hidden = true;
+    } catch (error) {
+      if (error.name === "AbortError") {
+        window.alert("Upload canceled.");
         return;
       }
-      const { data: publicUrlData } = supabaseClient.storage.from("notes-bucket").getPublicUrl(filePath);
-      fileUrl = publicUrlData.publicUrl;
+      console.error("Storage Upload Error:", error);
+      window.alert(`Storage Upload Error: ${error.message}`);
+      return;
     }
+    const { data: publicUrlData } = supabaseClient.storage.from("notes-bucket").getPublicUrl(filePath);
+    const fileUrl = publicUrlData.publicUrl;
 
     let insertedNote = null;
     try {
@@ -1799,12 +1636,6 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
 });
 
 const noteFileInput = document.getElementById("note-file-input");
-const driveLinkInput = document.getElementById("drive-link-input");
-document.querySelectorAll("input[name='uploadSource']").forEach((sourceOption) => {
-  sourceOption.addEventListener("change", () => {
-    syncUploadSourceUI();
-  });
-});
 
 populateSubjectOptions();
 
@@ -1872,7 +1703,6 @@ async function initializeApp() {
   }
   await showApp(restoredSession);
   updateNotesCount();
-  await renderGoogleDriveNotes();
 
   const notesList = document.getElementById("notes-list-container");
   if (notesList && !notesListObserver) {

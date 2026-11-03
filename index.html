@@ -188,16 +188,10 @@
             </div>
             <div class="notes-list">
             </div>
-            <div id="google-drive-notes-container" class="google-drive-notes-container" aria-live="polite"></div>
             <button class="accordion-toggle accordion-toggle-note" type="button" aria-expanded="false">
               <span class="accordion-plus">+</span> Upload New Note
             </button>
             <form id="upload-notes-form" class="upload-notes-form is-collapsed">
-              <fieldset class="upload-source-options">
-                <legend>Upload source</legend>
-                <label><input type="radio" name="uploadSource" value="local" checked> Upload Local PDF</label>
-                <label><input id="drive-source-option" type="radio" name="uploadSource" value="drive"> Import from Drive Link</label>
-              </fieldset>
               <label for="note-title-input">Note title</label>
               <input id="note-title-input" name="noteTitle" type="text" placeholder="e.g. Algebra essentials" required>
               <label for="note-category-input">Subject</label>
@@ -205,7 +199,6 @@
               <div class="upload-row">
                 <label class="file-input-label" for="note-file-input">PDF file</label>
                 <input id="note-file-input" name="noteFile" type="file" accept=".pdf,application/pdf" required>
-                <input id="drive-link-input" name="driveLink" type="url" placeholder="Direct Drive PDF link" hidden>
                 <button id="upload-notes-button" class="button button-outline" type="submit">Upload</button>
               </div>
               <div id="upload-progress-container" class="upload-progress-container" hidden>
