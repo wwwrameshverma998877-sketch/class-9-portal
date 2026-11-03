@@ -246,6 +246,68 @@ function populateSubjectOptions() {
   });
 }
 
+async function fetchGoogleDriveNotes() {
+  try {
+    const query = encodeURIComponent(`'${DRIVE_FOLDER_ID}' in parents and trashed = false`);
+    const url = `https://www.googleapis.com/drive/v3/files?q=${query}&key=${DRIVE_API_KEY}&fields=files(id,name,mimeType,webViewLink,webContentLink,iconLink,size)`;
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (data.error) {
+      console.error("Google Drive API Error:", data.error.message);
+      return [];
+    }
+
+    return (data.files || []).filter((file) => {
+      if (!file || !file.name || typeof file.name !== "string") return false;
+      return Boolean(file.webViewLink || file.webContentLink);
+    });
+  } catch (error) {
+    console.error("Failed to fetch notes from Google Drive:", error);
+    return [];
+  }
+}
+
+async function renderGoogleDriveNotes() {
+  const notesContainer = document.getElementById("google-drive-notes-container");
+  if (!notesContainer) return;
+
+  notesContainer.innerHTML = '<p style="margin: 0; color: #94a3b8; text-align: center;">Loading latest notes from Google Drive...</p>';
+  const files = await fetchGoogleDriveNotes();
+
+  if (!files.length) {
+    notesContainer.innerHTML = '<p style="margin: 0; color: #94a3b8; text-align: center;">No notes found in the Drive folder yet. Drop a PDF in Google Drive to see it here!</p>';
+    return;
+  }
+
+  notesContainer.innerHTML = "";
+  files.forEach((file) => {
+    const card = document.createElement("div");
+    card.className = "note-card";
+    card.style.cssText = "display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 12px; padding: 14px 16px; border: 1px solid rgba(17, 94, 89, 0.12); border-radius: 12px; background: rgba(17, 94, 89, 0.04);";
+
+    const info = document.createElement("div");
+    info.style.cssText = "display: flex; align-items: center; gap: 12px; flex: 1; min-width: 0;";
+    info.innerHTML = `
+      <div style="display: grid; place-items: center; width: 38px; height: 38px; border-radius: 10px; background: rgba(20, 184, 166, 0.12); color: #0f766e; font-size: 18px;">📄</div>
+      <div style="min-width: 0; flex: 1;">
+        <h4 style="margin: 0; color: #17222d; font-size: 0.95rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${file.name}</h4>
+        <small style="color: #64748b; font-size: 0.75rem;">Google Drive file</small>
+      </div>
+    `;
+
+    const actions = document.createElement("div");
+    actions.style.cssText = "display: flex; gap: 8px; flex-shrink: 0; flex-wrap: wrap;";
+    actions.innerHTML = `
+      <a href="${file.webViewLink}" target="_blank" rel="noreferrer" style="padding: 8px 12px; border-radius: 8px; background: #0f766e; color: #ffffff; text-decoration: none; font-size: 0.78rem; font-weight: 700;">View</a>
+      ${file.webContentLink ? `<a href="${file.webContentLink}" target="_blank" rel="noreferrer" download style="padding: 8px 12px; border-radius: 8px; background: rgba(17, 94, 89, 0.08); color: #0f766e; text-decoration: none; font-size: 0.78rem; font-weight: 700;">Download</a>` : ""}
+    `;
+
+    card.append(info, actions);
+    notesContainer.appendChild(card);
+  });
+}
+
 function renderNotes() {
   const notesContainer = document.getElementById("notes-list-container");
   const filteredNotes = allNotes.filter((note) => activeNotesSubject === "All" || note.subject === activeNotesSubject);
@@ -1810,6 +1872,7 @@ async function initializeApp() {
   }
   await showApp(restoredSession);
   updateNotesCount();
+  await renderGoogleDriveNotes();
 
   const notesList = document.getElementById("notes-list-container");
   if (notesList && !notesListObserver) {
