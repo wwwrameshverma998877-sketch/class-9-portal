@@ -1,0 +1,18 @@
+{
+  "name": "Northstar | Class 9 Study Portal",
+  "short_name": "Northstar",
+  "description": "A focused study portal for Class 9 students.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#172a38",
+  "theme_color": "#172a38",
+  "icons": [
+    {
+      "src": "/assets/icon.png",
+      "sizes": "1024x1024",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

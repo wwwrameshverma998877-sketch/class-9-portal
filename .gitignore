@@ -1,0 +1,15 @@
+# Android & APK build files
+*.apk
+*.aab
+android/
+.gradle/
+build/
+
+# Node & environment files
+node_modules/
+.env
+.vercel/
+
+# OS & editor files
+.DS_Store
+Thumbs.db

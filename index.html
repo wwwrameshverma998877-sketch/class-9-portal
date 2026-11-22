@@ -4,8 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="description" content="A focused study portal for Class 9 students.">
+  <meta name="theme-color" content="#172a38">
   <meta name="google-site-verification" content="27JIRDgbX4p4CSuACsNmwbJta7bnZCVqrQe00frKjW0" />
   <title>Northstar | Class 9 Study Portal</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/png" sizes="1024x1024" href="/assets/icon.png">
+  <link rel="apple-touch-icon" href="/assets/icon.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
@@ -60,10 +64,16 @@
       <div class="brand-mark" aria-hidden="true">N</div>
       <p class="eyebrow">Northstar learning hub</p>
       <h1 id="login-title">Login to<br><span>your portal.</span></h1>
-      <p class="login-intro">Use the Roll Number and Access Code provided by your school.</p>
+      <p class="login-intro">Use your Division, Roll Number, and Access Code provided by your school.</p>
       <form id="login-form" class="login-form">
+        <label for="student-division">Division</label>
+        <select id="student-division" name="division" required>
+          <option value="">Choose your division</option>
+          <option value="Karma">Karma</option>
+          <option value="Shraddha">Shraddha</option>
+        </select>
         <label for="roll-no">Student Roll Number</label>
-        <input id="roll-no" name="rollNo" type="number" min="1" max="30" step="1" placeholder="e.g. 12" required>
+        <input id="roll-no" name="rollNo" type="number" min="1" max="35" step="1" placeholder="e.g. 12" required>
         <label for="access-code">Access Code / Password</label>
         <div class="password-input-wrap">
           <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter your access code" required>
@@ -132,11 +142,16 @@
         <div class="admin-grid">
           <div class="admin-action">
             <div class="section-icon warm">&#43;</div>
-            <div><h4>Create an access code</h4><p>Assign a code to a student or administrator.</p></div>
+            <div><h4>Create an access code</h4><p>Assign an access code, division, and roll number to an account.</p></div>
             <form id="admin-code-form" class="admin-code-form">
               <input id="new-code" name="code" type="text" placeholder="Code e.g. NS-2026" required>
               <select id="new-role" name="role" required><option value="student">Student</option><option value="admin">Admin</option></select>
               <input id="new-student-name" name="studentName" type="text" placeholder="Student name" required>
+              <select id="new-division" name="division" required>
+                <option value="">Division</option>
+                <option value="Karma">Karma</option>
+                <option value="Shraddha">Shraddha</option>
+              </select>
               <select id="new-roll-no" name="rollNo" required>
                 <option value="">Roll no</option>
                 <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
@@ -145,6 +160,7 @@
                 <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
                 <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
                 <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
+                <option value="31">31</option><option value="32">32</option><option value="33">33</option><option value="34">34</option><option value="35">35</option>
               </select>
               <button id="generate-code" class="button button-outline" type="submit">Create code</button>
             </form>
@@ -224,6 +240,13 @@
             </form>
           </section>
         </div>
+        <section class="section-block home-questions-section" aria-labelledby="home-questions-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Keep learning together</p><h3 id="home-questions-title">Recent class questions</h3></div>
+            <button class="home-questions-link" type="button" data-open-panel="doubts">See all in Q&amp;A <span aria-hidden="true">&#8594;</span></button>
+          </div>
+          <div id="home-questions-feed" class="feed-list" aria-live="polite"></div>
+        </section>
       </div>
 
       <div class="dashboard-panel" data-panel="doubts">
@@ -272,5 +295,13 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/sw.js")
+          .catch((error) => console.error("Unable to register the Northstar service worker.", error));
+      });
+    }
+  </script>
 </body>
 </html>

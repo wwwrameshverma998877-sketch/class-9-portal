@@ -3,7 +3,7 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const SUPABASE_PROJECT_URL = SUPABASE_URL.replace(/\/rest\/v1\/?$/, "");
 const supabaseClient = supabase.createClient(SUPABASE_PROJECT_URL, SUPABASE_ANON_KEY);
 const MAX_PDF_SIZE = 10 * 1024 * 1024;
-const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi"];
+const SUBJECTS = ["English", "Algebra", "Geometry", "Science I", "Science II", "Hindi", "Marathi", "History", "Political Science", "Geography", "Other"];
 let activeSession = null;
 let isLoggedIn = false;
 let isAdmin = false;
@@ -169,17 +169,21 @@ function getRollNo(record) {
 
 async function releaseActiveSession(session = activeSession) {
   const currentSession = session || activeSession;
-  if (!currentSession?.rollNo || currentSession.rollNo === "-") return;
+  if (!currentSession?.rollNo || currentSession.rollNo === "-" || !currentSession.division) return;
   try {
-    const response = await fetch(`${SUPABASE_URL}Credentials?roll_number=eq.${encodeURIComponent(currentSession.rollNo)}`, {
-      method: "PATCH",
+    const response = await fetch(`${SUPABASE_URL}rpc/release_credentials_session`, {
+      method: "POST",
       headers: {
         apikey: SUPABASE_ANON_KEY,
         Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-        "Content-Type": "application/json",
-        Prefer: "return=minimal"
+        "Content-Type": "application/json"
       },
-      body: JSON.stringify({ current_session_token: null }),
+      body: JSON.stringify({
+        p_division: currentSession.division,
+        p_roll_number: String(currentSession.rollNo),
+        p_access_code: currentSession.accessCode || currentSession.access_code,
+        p_device_token: getDeviceToken()
+      }),
       keepalive: true
     });
     if (!response.ok) throw new Error(`Session release failed (${response.status}).`);
@@ -205,6 +209,7 @@ function subjectClass(subject) {
 
 function renderFilteredQuestions() {
   const feed = document.getElementById("questions-feed");
+  const homeFeed = document.getElementById("home-questions-feed");
   const normalizedSearch = searchTerm.trim().toLowerCase();
   const filteredQuestions = allQuestions.filter((item) => {
     const subject = item.subject || "General";
@@ -212,7 +217,21 @@ function renderFilteredQuestions() {
     const searchableText = `${item.author_name || item.author || ""} ${subject} ${item.question_text || item.question || ""}`.toLowerCase();
     return matchesSubject && (!normalizedSearch || searchableText.includes(normalizedSearch));
   });
-  feed.replaceChildren(...filteredQuestions.map(renderQuestionCard));
+  feed.replaceChildren(...filteredQuestions.map((item) => renderQuestionCard(item, "all")));
+  const recentQuestions = allQuestions.slice(0, 3);
+  if (homeFeed) {
+    homeFeed.replaceChildren(...recentQuestions.map((item) => renderQuestionCard(item, "home")));
+    if (!recentQuestions.length) {
+      const emptyState = document.createElement("p");
+      emptyState.className = "home-questions-empty";
+      emptyState.textContent = "No questions yet. Be the first to ask your classmates.";
+      homeFeed.appendChild(emptyState);
+    }
+  }
+  [...new Set([...filteredQuestions, ...recentQuestions]
+    .map((item) => item.id)
+    .filter((id) => id !== undefined && id !== null))]
+    .forEach((questionId) => void fetchAnswersForQuestion(questionId));
 }
 
 function populateSubjectOptions() {
@@ -258,7 +277,9 @@ function renderUser(session) {
   const welcomeElement = document.getElementById("welcome-name");
   const avatarElement = document.getElementById("header-avatar");
   if (nameElement) nameElement.textContent = session.name;
-  if (rollElement) rollElement.textContent = isAdmin ? "Portal administrator" : `Roll no ${getRollNo(session)}`;
+  if (rollElement) rollElement.textContent = isAdmin
+    ? "Portal administrator"
+    : `Roll no ${getRollNo(session)} · ${session.division || "Division not set"}`;
   if (welcomeElement) welcomeElement.textContent = session.name.split(" ")[0];
   if (avatarElement) avatarElement.textContent = session.name.charAt(0).toUpperCase();
   if (adminPanel) adminPanel.hidden = !isAdmin;
@@ -289,6 +310,7 @@ function persistSession(session) {
   const appSession = {
     name: session.name || "",
     role: session.role || "student",
+    division: session.division || "",
     rollNo: session.rollNo || session.roll_number || "",
     roll_number: session.roll_number || session.rollNo || "",
     accessCode: session.accessCode || session.access_code || "",
@@ -302,12 +324,16 @@ function persistSession(session) {
       access_code: appSession.access_code,
       name: appSession.name,
       role: appSession.role,
+      division: appSession.division,
       device_id: deviceId,
       deviceId
     }));
     localStorage.setItem("northstar_auth_token", "true");
     if (appSession.roll_number) {
       localStorage.setItem("northstar_user_roll", String(appSession.roll_number));
+    }
+    if (appSession.division) {
+      localStorage.setItem("northstar_user_division", appSession.division);
     }
   } catch (error) {
     console.error("Unable to persist Northstar session.", error);
@@ -325,6 +351,7 @@ function clearPersistedSession() {
     localStorage.removeItem("northstar_session");
     localStorage.removeItem("northstar_auth_token");
     localStorage.removeItem("northstar_user_roll");
+    localStorage.removeItem("northstar_user_division");
     localStorage.removeItem("classPortal.deviceToken");
   } catch (error) {
     console.error("Unable to clear saved portal session.", error);
@@ -336,6 +363,7 @@ function normalizeStoredSession(rawSession) {
   const normalized = {
     name: rawSession.name || rawSession.student_name || "",
     role: rawSession.role || "student",
+    division: rawSession.division || "",
     rollNo: rawSession.rollNo || rawSession.roll_number || "",
     roll_number: rawSession.roll_number || rawSession.rollNo || "",
     accessCode: rawSession.accessCode || rawSession.access_code || "",
@@ -366,19 +394,20 @@ async function showApp(session) {
 async function bypassLoginToDashboard(session) {
   const rawSession = normalizeStoredSession(session);
   const rollNo = rawSession?.rollNo || rawSession?.roll_number;
+  const division = rawSession?.division;
   const accessCode = rawSession?.accessCode || rawSession?.access_code;
   const savedDeviceId = localStorage.getItem("northstar_device_id") || getOrCreateDeviceId();
   const sessionDeviceId = rawSession?.deviceId || rawSession?.device_id || "";
 
-  if (!rollNo || !accessCode) return false;
+  if (!rollNo || !division || !accessCode) return false;
   if (sessionDeviceId && savedDeviceId && sessionDeviceId !== savedDeviceId) {
     clearPersistedSession();
     return false;
   }
 
   try {
-    const verifiedSession = await login(String(rollNo), String(accessCode), false);
-    if (!verifiedSession || verifiedSession.occupied) return false;
+    const verifiedSession = await login(String(rollNo), division, String(accessCode));
+    if (!verifiedSession || verifiedSession.limitReached) return false;
     persistSession(verifiedSession);
     await showApp(verifiedSession);
     return true;
@@ -391,7 +420,8 @@ async function bypassLoginToDashboard(session) {
 async function autoLoginFromStoredToken() {
   const authToken = localStorage.getItem("northstar_auth_token");
   const storedRollNo = localStorage.getItem("northstar_user_roll");
-  if (!authToken || !storedRollNo) return false;
+  const storedDivision = localStorage.getItem("northstar_user_division");
+  if (!authToken || !storedRollNo || !storedDivision) return false;
 
   const storedSession = localStorage.getItem("northstar_session");
   if (storedSession) {
@@ -407,7 +437,8 @@ async function autoLoginFromStoredToken() {
   try {
     const { data: credential, error } = await supabaseClient
       .from("Credentials")
-      .select("access_code, role, student_name, roll_number, current_session_token")
+      .select("access_code")
+      .eq("division", storedDivision)
       .eq("roll_number", storedRollNo)
       .maybeSingle();
 
@@ -416,14 +447,8 @@ async function autoLoginFromStoredToken() {
       return false;
     }
 
-    const currentDeviceToken = getDeviceToken();
-    if (credential.current_session_token && credential.current_session_token !== currentDeviceToken) {
-      clearPersistedSession();
-      return false;
-    }
-
-    const verifiedSession = await login(String(storedRollNo), String(credential.access_code), false);
-    if (!verifiedSession || verifiedSession.occupied) {
+    const verifiedSession = await login(String(storedRollNo), storedDivision, String(credential.access_code));
+    if (!verifiedSession || verifiedSession.limitReached) {
       clearPersistedSession();
       return false;
     }
@@ -451,81 +476,49 @@ async function restoreSavedSession() {
 
   const normalizedSession = normalizeStoredSession(storedSession);
   const rollNo = normalizedSession?.rollNo || normalizedSession?.roll_number;
-  if (!rollNo) return null;
+  const division = normalizedSession?.division;
+  const accessCode = normalizedSession?.accessCode || normalizedSession?.access_code;
+  if (!rollNo || !division || !accessCode) return null;
 
-  const myToken = getDeviceToken();
-  const { data: credential, error } = await supabaseClient
-    .from("Credentials")
-    .select("access_code, role, student_name, roll_number, current_session_token")
-    .eq("roll_number", rollNo)
-    .maybeSingle();
-
-  if (error) {
-    console.error("Unable to restore the Credentials session.", error);
-    return null;
-  }
-  if (!credential) return null;
-  if (credential.current_session_token && credential.current_session_token !== myToken) return { securityConflict: true };
-
-  const { data: claimedRows, error: claimError } = await supabaseClient
-    .from("Credentials")
-    .update({ current_session_token: myToken })
-    .eq("roll_number", rollNo)
-    .select("roll_number");
-  if (claimError) throw claimError;
-  if (!claimedRows?.length) return { securityConflict: true };
-
-  const session = {
-    name: titleCaseName(credential.student_name?.trim() || `Student ${credential.roll_number}`),
-    role: credential.role || "student",
-    rollNo: credential.roll_number,
-    accessCode: credential.access_code
-  };
-  localStorage.setItem("classPortal.activeSession", JSON.stringify(session));
+  const session = await login(String(rollNo), division, String(accessCode));
+  if (session?.limitReached) return { deviceLimitReached: true };
   return session;
 }
 
-async function login(rollNo, accessCode, force = false) {
+async function login(rollNo, division, accessCode) {
   const normalizedCode = accessCode.trim().toUpperCase();
   const myToken = getDeviceToken();
-  const { data: accessCodeRecord, error } = await supabaseClient
-    .from("Credentials")
-    .select("access_code, role, student_name, roll_number, current_session_token")
-    .eq("access_code", normalizedCode)
-    .eq("roll_number", rollNo)
-    .maybeSingle();
-
+  const { data: claim, error } = await supabaseClient.rpc("claim_credentials_session", {
+    p_division: division,
+    p_roll_number: String(rollNo),
+    p_access_code: normalizedCode,
+    p_device_token: myToken
+  });
   if (error) throw error;
-  if (!accessCodeRecord) return null;
-
-  const isOccupiedByOther = Boolean(accessCodeRecord.current_session_token && accessCodeRecord.current_session_token !== myToken);
-  if (isOccupiedByOther && !force) return { occupied: true };
-
-  const { data: claimedRows, error: claimError } = await supabaseClient
-    .from("Credentials")
-    .update({ current_session_token: myToken })
-    .eq("access_code", normalizedCode)
-    .eq("roll_number", rollNo)
-    .select("roll_number");
-  if (claimError) throw claimError;
-  if (!claimedRows?.length) return { occupied: true };
+  if (claim?.status === "not_found") return null;
+  if (claim?.status === "limit_reached") return { limitReached: true };
+  if (claim?.status !== "claimed") throw new Error("Unable to claim this device session.");
 
   return {
-    name: titleCaseName(accessCodeRecord.student_name?.trim() || `Student ${accessCodeRecord.roll_number || rollNo}`),
-    role: accessCodeRecord.role || "student",
-    rollNo: accessCodeRecord.roll_number || rollNo || "-",
-    accessCode: accessCodeRecord.access_code
+    name: titleCaseName(claim.name?.trim() || `Student ${claim.roll_number || rollNo}`),
+    role: claim.role || "student",
+    division: claim.division,
+    rollNo: claim.roll_number || rollNo || "-",
+    accessCode: claim.access_code
   };
 }
 
-async function isStudentNameTaken(customName, currentRollNo) {
+async function isStudentNameTaken(customName, currentRollNo, currentDivision) {
   const { data: matches, error } = await supabaseClient
     .from("Credentials")
-    .select("roll_number")
+    .select("roll_number, division")
     .ilike("student_name", customName)
     .limit(20);
   if (error) throw error;
-  return matches.some((record) => String(record.roll_number) !== String(currentRollNo));
+  return matches.some((record) =>
+    String(record.roll_number) !== String(currentRollNo) ||
+    String(record.division || "") !== String(currentDivision || "")
+  );
 }
 
 async function renderCodes() {
@@ -576,8 +569,9 @@ function renderAnswerCard(answer) {
 }
 
 async function fetchAnswersForQuestion(questionId) {
-  const answersContainer = document.getElementById(`answers-for-${questionId}`);
-  if (!answersContainer) return;
+  const answersContainers = [...document.querySelectorAll(".answers-list")]
+    .filter((container) => container.dataset.questionId === String(questionId));
+  if (!answersContainers.length) return;
 
   const { data: answers, error } = await supabaseClient
     .from("answers")
@@ -587,19 +581,39 @@ async function fetchAnswersForQuestion(questionId) {
 
   if (error) {
     console.error("Unable to load answers for question.", error);
+    answersContainers.forEach((container) => {
+      container.replaceChildren();
+      const errorMessage = document.createElement("p");
+      errorMessage.className = "answers-empty";
+      errorMessage.textContent = "Replies could not be loaded. Please try again.";
+      container.appendChild(errorMessage);
+    });
     return;
   }
 
-  answersContainer.replaceChildren(...answers.map(renderAnswerCard));
+  answersContainers.forEach((container) => {
+    if (answers.length) {
+      container.replaceChildren(...answers.map(renderAnswerCard));
+    } else {
+      const emptyState = document.createElement("p");
+      emptyState.className = "answers-empty";
+      emptyState.textContent = "No replies yet. You can add the first one below.";
+      container.replaceChildren(emptyState);
+    }
+    const answerCount = container.closest(".question-card")?.querySelector(".answer-count");
+    if (answerCount) {
+      answerCount.textContent = answers.length
+        ? `↩ ${answers.length} ${answers.length === 1 ? "reply" : "replies"}`
+        : "↩ No replies yet";
+    }
+  });
 }
 
-async function postReply(questionId) {
-  const replyInput = document.getElementById(`reply-input-${questionId}`);
-  const replyButton = document.getElementById(`reply-btn-${questionId}`);
+async function postReply(questionId, replyInput, replyButton) {
   const answerText = replyInput?.value.trim();
   if (!answerText || !activeSession || !isLoggedIn) return;
 
-  replyButton.disabled = true;
+  if (replyButton) replyButton.disabled = true;
   const { data: insertedAnswers, error } = await supabaseClient
     .from("answers")
     .insert({
@@ -618,25 +632,31 @@ async function postReply(questionId) {
     replyInput.value = "";
     await fetchAnswersForQuestion(questionId);
   }
-  replyButton.disabled = false;
+  if (replyButton) replyButton.disabled = false;
 }
 
 function renderReplySection(body, question) {
-  const questionId = question.id || `question-${Date.now()}`;
+  const questionId = question.id;
+  if (questionId === undefined || questionId === null) return;
   const answersList = document.createElement("div");
+  const repliesHeading = document.createElement("h4");
   const replyForm = document.createElement("form");
   const replyInput = document.createElement("input");
   const replyButton = document.createElement("button");
-
   answersList.className = "answers-list";
-  answersList.id = `answers-for-${questionId}`;
+  answersList.dataset.questionId = String(questionId);
+  answersList.setAttribute("aria-live", "polite");
+  repliesHeading.className = "replies-heading";
+  repliesHeading.textContent = "Replies";
+  const loadingMessage = document.createElement("p");
+  loadingMessage.className = "answers-empty";
+  loadingMessage.textContent = "Loading replies…";
+  answersList.appendChild(loadingMessage);
   replyForm.className = "reply-form";
-  replyInput.id = `reply-input-${questionId}`;
   replyInput.type = "text";
   replyInput.placeholder = isLoggedIn ? "Write an answer..." : "Login to reply...";
   replyInput.required = true;
   replyInput.disabled = !isLoggedIn;
-  replyButton.id = `reply-btn-${questionId}`;
   replyButton.className = "reply-button button button-outline";
   replyButton.type = "submit";
   replyButton.textContent = isLoggedIn ? "Post Reply" : "Login to reply...";
@@ -649,12 +669,11 @@ function renderReplySection(body, question) {
       window.alert("Please log in to participate.");
       return;
     }
-    void postReply(questionId);
+    void postReply(questionId, replyInput, replyButton);
   });
 
   replyForm.append(replyInput, replyButton);
-  body.append(answersList, replyForm);
-  void fetchAnswersForQuestion(questionId);
+  body.append(repliesHeading, answersList, replyForm);
 }
 
 async function resolveUploaderName(note) {
@@ -904,36 +923,12 @@ function renderPollCard(poll, options, userVote) {
   const card = document.createElement("article");
   const question = document.createElement("h4");
   card.className = "poll-card";
+  card.dataset.pollId = String(poll.poll_id);
   question.textContent = poll.question || poll.question_text || "Poll";
   card.append(question);
 
   if (userVote) {
-    const results = document.createElement("div");
-    results.className = "poll-results";
-    const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
-    options.forEach((option) => {
-      const row = document.createElement("div");
-      const metadata = document.createElement("div");
-      const label = document.createElement("strong");
-      const count = document.createElement("span");
-      const track = document.createElement("div");
-      const fill = document.createElement("div");
-      const votes = Number(option.vote_count || 0);
-      const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
-      row.className = `poll-result-row${String(userVote.option_id) === String(option.id) ? " is-voted" : ""}`;
-      metadata.className = "poll-result-meta";
-      label.textContent = option.option_text || option.text || "Option";
-      count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
-      track.className = "poll-result-track";
-      fill.className = "poll-result-fill";
-      fill.style.width = "0%";
-      requestAnimationFrame(() => { fill.style.width = `${percentage}%`; });
-      track.append(fill);
-      metadata.append(label, count);
-      row.append(metadata, track);
-      results.append(row);
-    });
-    card.append(results);
+    card.append(createPollResults(options, userVote));
     return card;
   }
 
@@ -971,7 +966,66 @@ function renderPollCard(poll, options, userVote) {
   return card;
 }
 
-async function fetchPolls() {
+function createPollResults(options, userVote) {
+  const results = document.createElement("div");
+  results.className = "poll-results";
+  const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
+  options.forEach((option) => {
+    const row = document.createElement("div");
+    const metadata = document.createElement("div");
+    const label = document.createElement("strong");
+    const count = document.createElement("span");
+    const track = document.createElement("div");
+    const fill = document.createElement("div");
+    const votes = Number(option.vote_count || 0);
+    const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
+    row.className = `poll-result-row${String(userVote.option_id) === String(option.id) ? " is-voted" : ""}`;
+    row.dataset.optionId = String(option.id);
+    metadata.className = "poll-result-meta";
+    label.textContent = option.option_text || option.text || "Option";
+    count.className = "poll-result-count";
+    count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
+    track.className = "poll-result-track";
+    fill.className = "poll-result-fill";
+    fill.style.width = "0%";
+    requestAnimationFrame(() => { fill.style.width = `${percentage}%`; });
+    track.append(fill);
+    metadata.append(label, count);
+    row.append(metadata, track);
+    results.append(row);
+  });
+  return results;
+}
+
+function updatePollCardResults(card, options, userVote) {
+  let results = card.querySelector(".poll-results");
+  if (!results) {
+    card.querySelector(".poll-vote-form")?.remove();
+    results = createPollResults(options, userVote);
+    card.append(results);
+    return;
+  }
+
+  const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
+  options.forEach((option) => {
+    const row = [...results.querySelectorAll(".poll-result-row")]
+      .find((resultRow) => resultRow.dataset.optionId === String(option.id));
+    if (!row) {
+      results.replaceWith(createPollResults(options, userVote));
+      return;
+    }
+
+    const votes = Number(option.vote_count || 0);
+    const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
+    const count = row.querySelector(".poll-result-count");
+    const fill = row.querySelector(".poll-result-fill");
+    if (count) count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
+    if (fill) fill.style.width = `${percentage}%`;
+    row.classList.toggle("is-voted", String(userVote.option_id) === String(option.id));
+  });
+}
+
+async function fetchPolls({ updateResultsOnly = false, pollId = null } = {}) {
   const pollList = document.getElementById("polls-list");
   const { data: polls, error: pollsError } = await supabaseClient
     .from("polls")
@@ -983,7 +1037,7 @@ async function fetchPolls() {
     return;
   }
   if (!polls.length) {
-    pollList.replaceChildren();
+    if (!updateResultsOnly) pollList.replaceChildren();
     return;
   }
 
@@ -1007,6 +1061,19 @@ async function fetchPolls() {
       .in("poll_id", pollIds);
     if (votesError) console.error("Unable to fetch poll votes.", votesError);
     else votes = userVotes;
+  }
+
+  if (updateResultsOnly) {
+    polls.forEach((poll) => {
+      if (pollId !== null && String(poll.poll_id) !== String(pollId)) return;
+      const card = [...pollList.querySelectorAll(".poll-card")]
+        .find((pollCard) => pollCard.dataset.pollId === String(poll.poll_id));
+      const userVote = votes.find((vote) => String(vote.poll_id) === String(poll.poll_id));
+      if (!card || !userVote) return;
+      const pollOptions = options.filter((option) => String(option.poll_id) === String(poll.poll_id));
+      updatePollCardResults(card, pollOptions, userVote);
+    });
+    return;
   }
 
   pollList.replaceChildren(...polls.map((poll) => renderPollCard(
@@ -1048,11 +1115,11 @@ async function voteInPoll(poll, optionId, voteButton) {
       .update({ vote_count: Number(option.vote_count || 0) + 1 })
       .eq("id", sanitizedOptionId);
     if (updateError) throw updateError;
-    await fetchPolls();
+    await fetchPolls({ updateResultsOnly: true, pollId: poll.poll_id });
   } catch (error) {
     console.error("Unable to submit poll vote.", error);
     window.alert(error.message || "Unable to submit your vote.");
-    if (voteRecorded) await fetchPolls();
+    if (voteRecorded) await fetchPolls({ updateResultsOnly: true, pollId: poll.poll_id });
     else voteButton.disabled = false;
   }
 }
@@ -1061,14 +1128,14 @@ function subscribeToPollChanges() {
   if (realtimePollsChannel) return realtimePollsChannel;
   realtimePollsChannel = supabaseClient
     .channel("realtime-polls")
-    .on("postgres_changes", { event: "*", schema: "public", table: "poll_options" }, () => fetchPolls())
+    .on("postgres_changes", { event: "*", schema: "public", table: "poll_options" }, () => fetchPolls({ updateResultsOnly: true }))
     .subscribe((status) => {
       if (status === "CHANNEL_ERROR") console.error("Unable to subscribe to poll updates.");
     });
   return realtimePollsChannel;
 }
 
-function renderQuestionCard(item) {
+function renderQuestionCard(item, feedName) {
   const card = document.createElement("article");
   const avatar = document.createElement("div");
   const body = document.createElement("div");
@@ -1081,6 +1148,7 @@ function renderQuestionCard(item) {
   const subject = item.subject || "General";
 
   card.className = "question-card";
+  card.dataset.feed = feedName;
   avatar.className = "feed-avatar blue";
   avatar.textContent = (item.author_name || item.author || "S").charAt(0).toUpperCase();
   body.className = "question-body";
@@ -1089,9 +1157,9 @@ function renderQuestionCard(item) {
   time.textContent = `Roll no ${getRollNo(item)} · ${formatTimestamp(item.created_at || item.timestamp)}`;
   question.textContent = item.question_text || item.question || "";
   answers.className = "answer-count";
-  answers.textContent = `↩ ${item.answers ? `${item.answers} answers` : "Awaiting answers"}`;
-  badge.className = `subject-badge ${subjectClass(subject)}`;
-  badge.textContent = subject.charAt(0);
+  answers.textContent = "↩ Loading replies…";
+  badge.className = "question-subject-badge";
+  badge.textContent = subject;
   metadata.append(author, time);
   body.append(badge, metadata, question, answers);
   renderReplySection(body, item);
@@ -1177,37 +1245,18 @@ loginForm.addEventListener("submit", async (event) => {
   const submitButton = loginForm.querySelector("button[type='submit']");
   const formData = new FormData(loginForm);
   const rollNo = String(formData.get("rollNo") || "").trim();
+  const division = String(formData.get("division") || "").trim();
   submitButton.disabled = true;
   showMessage(loginMessage, "Checking access...");
 
   try {
-    const session = await login(rollNo, formData.get("accessCode"));
-    if (session?.occupied) {
-      showMessage(loginMessage, "This Roll Number is already logged in on another device.", true);
-      const forceButton = document.createElement("button");
-      forceButton.type = "button";
-      forceButton.className = "button button-outline force-session-button";
-      forceButton.textContent = "Force Logout Other Device";
-      forceButton.addEventListener("click", async () => {
-        forceButton.disabled = true;
-        try {
-          const forcedSession = await login(rollNo, formData.get("accessCode"), true);
-          if (!forcedSession || forcedSession.occupied) throw new Error("Unable to claim this Roll Number.");
-          persistSession(forcedSession);
-          loginForm.reset();
-          showMessage(loginMessage, "");
-          await showApp(forcedSession);
-        } catch (error) {
-          console.error("Unable to override the previous Roll Number session.", error);
-          window.alert(error.message || "Unable to log out the other device.");
-          forceButton.disabled = false;
-        }
-      });
-      loginMessage.append(document.createTextNode(" "), forceButton);
+    const session = await login(rollNo, division, formData.get("accessCode"));
+    if (session?.limitReached) {
+      showMessage(loginMessage, "This account is already active on 2 devices. Log out on one device before signing in here.", true);
       return;
     }
     if (!session) {
-      showMessage(loginMessage, "That access code was not found.", true);
+      showMessage(loginMessage, "No account matches that division, roll number, and access code.", true);
       return;
     }
     persistSession(session);
@@ -1263,6 +1312,13 @@ dashboardTabs.forEach((tab) => {
   });
 });
 
+document.querySelectorAll("[data-open-panel]").forEach((button) => {
+  button.addEventListener("click", () => {
+    const targetPanel = button.dataset.openPanel;
+    [...dashboardTabs].find((tab) => tab.dataset.panel === targetPanel)?.click();
+  });
+});
+
 document.querySelectorAll(".accordion-toggle").forEach((toggleButton) => {
   toggleButton.addEventListener("click", () => {
     const isExpanded = toggleButton.getAttribute("aria-expanded") === "true";
@@ -1301,7 +1357,7 @@ changeNameForm.addEventListener("submit", async (event) => {
   const submitButton = changeNameForm.querySelector("button[type='submit']");
   submitButton.disabled = true;
   try {
-    if (await isStudentNameTaken(customName, activeSession.rollNo)) {
+    if (await isStudentNameTaken(customName, activeSession.rollNo, activeSession.division)) {
       window.alert("This name is already in use. Please choose a different display name.");
       showMessage(message, "Choose a different display name.", true);
       return;
@@ -1310,6 +1366,7 @@ changeNameForm.addEventListener("submit", async (event) => {
     const { error } = await supabaseClient
       .from("Credentials")
       .update({ student_name: customName })
+      .eq("division", activeSession.division)
       .eq("roll_number", activeSession.rollNo);
     if (error) throw error;
 
@@ -1339,6 +1396,7 @@ async function performLogout() {
   localStorage.removeItem("northstar_session");
   localStorage.removeItem("northstar_auth_token");
   localStorage.removeItem("northstar_user_roll");
+  localStorage.removeItem("northstar_user_division");
   localStorage.removeItem("classPortal.activeSession");
   localStorage.removeItem("classPortal.deviceToken");
   loginForm.reset();
@@ -1375,27 +1433,46 @@ document.getElementById("admin-code-form").addEventListener("submit", async (eve
   const code = formData.get("code").trim().toUpperCase();
   const role = formData.get("role");
   const studentName = titleCaseName(formData.get("studentName"));
+  const division = String(formData.get("division") || "").trim();
   const rollNo = formData.get("rollNo");
   generateButton.disabled = true;
 
-  const { error } = await supabaseClient
-    .from("Credentials")
-    .insert({ access_code: code, role, student_name: studentName, roll_number: rollNo });
+  try {
+    const { data: existingAccounts, error: lookupError } = await supabaseClient
+      .from("Credentials")
+      .select("roll_number")
+      .eq("division", division)
+      .eq("roll_number", rollNo)
+      .limit(1);
+    if (lookupError) throw lookupError;
+    if (existingAccounts?.length) {
+      showMessage(document.getElementById("admin-code-message"), "An account already exists for this division and roll number.", true);
+      generateButton.disabled = false;
+      return;
+    }
 
-  if (error) {
+    const { error: insertError } = await supabaseClient
+      .from("Credentials")
+      .insert({ access_code: code, role, student_name: studentName, division, roll_number: rollNo });
+
+    if (insertError) throw insertError;
+
+    form.reset();
+    showMessage(document.getElementById("admin-code-message"), "Access code created.");
+    await renderCodes();
+    generateButton.textContent = "Created";
+    setTimeout(() => {
+      generateButton.textContent = "Create code";
+      generateButton.disabled = false;
+    }, 1400);
+  } catch (error) {
+    console.error("Unable to create account credentials.", error);
+    const message = error.code === "23505"
+      ? "An account already exists for this division and roll number."
+      : error.message || "Unable to create code.";
+    showMessage(document.getElementById("admin-code-message"), message, true);
     generateButton.disabled = false;
-    showMessage(document.getElementById("admin-code-message"), "Unable to create code", true);
-    return;
   }
-
-  form.reset();
-  showMessage(document.getElementById("admin-code-message"), "Access code created.");
-  await renderCodes();
-  generateButton.textContent = "Created";
-  setTimeout(() => {
-    generateButton.textContent = "Create code";
-    generateButton.disabled = false;
-  }, 1400);
 });
 
 document.getElementById("question-form").addEventListener("submit", async (event) => {
@@ -1691,10 +1768,12 @@ async function initializeApp() {
     console.error("Unable to restore local portal session.", error);
   }
 
-  if (restoredSession?.securityConflict) {
+  if (restoredSession?.deviceLimitReached) {
+    clearPersistedSession();
     localStorage.removeItem("classPortal.activeSession");
-    window.alert("Session active on another device. Please log out there first.");
     showWelcomePage();
+    openLoginModal();
+    showMessage(loginMessage, "This account is already active on 2 devices. Log out on one device before signing in here.", true);
     return;
   }
   if (!restoredSession) {
