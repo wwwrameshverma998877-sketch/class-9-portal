@@ -173,6 +173,24 @@
               <li><code>NS-STUDY</code><span>Active now</span></li>
             </ul>
           </div>
+          <div class="admin-action notice-admin-action">
+            <div class="section-icon warm" aria-hidden="true">&#128197;</div>
+            <div>
+              <h4>Exam countdown &amp; important notice</h4>
+              <p>Publish or update the notice shown at the top of the Home tab.</p>
+            </div>
+            <form id="portal-notice-form" class="portal-notice-form">
+              <label for="portal-notice-input">Notice text</label>
+              <textarea id="portal-notice-input" name="noticeText" rows="3" maxlength="1000" placeholder="e.g. Mathematics exams begin next Monday." required></textarea>
+              <label for="portal-notice-date">Exam or target date and time (optional)</label>
+              <input id="portal-notice-date" name="targetAt" type="datetime-local">
+              <div class="portal-notice-actions">
+                <button id="save-portal-notice" class="button button-outline" type="submit">Publish notice</button>
+                <button id="clear-portal-notice" class="button button-dark" type="button">Clear notice</button>
+              </div>
+              <p id="portal-notice-admin-message" class="form-message" role="status" aria-live="polite"></p>
+            </form>
+          </div>
         </div>
       </section>
 
@@ -192,14 +210,44 @@
       </nav>
 
       <div class="dashboard-panel is-active" data-panel="notes">
+        <aside id="portal-notice-banner" class="portal-notice-banner" aria-labelledby="portal-notice-heading" hidden>
+          <div class="portal-notice-copy">
+            <p class="eyebrow">Important notice</p>
+            <h3 id="portal-notice-heading">Portal notice</h3>
+            <p id="portal-notice-text" class="portal-notice-text" aria-live="polite"></p>
+            <p id="portal-notice-target" class="portal-notice-target" hidden></p>
+          </div>
+          <div id="portal-notice-countdown" class="portal-notice-countdown" aria-label="Time remaining">
+            <span class="countdown-unit"><strong id="notice-countdown-days">0</strong><small>days</small></span>
+            <span class="countdown-unit"><strong id="notice-countdown-hours">00</strong><small>hours</small></span>
+            <span class="countdown-unit"><strong id="notice-countdown-minutes">00</strong><small>minutes</small></span>
+          </div>
+        </aside>
         <div class="content-grid">
           <section class="section-block notes-section" aria-labelledby="notes-title">
             <div class="section-heading compact-heading">
               <div><p class="eyebrow">Your library</p><h3 id="notes-title">Class notes</h3></div>
               <div class="notes-heading-actions">
-                <label class="notes-filter-label" for="notes-filter">Subject</label>
-                <select id="notes-filter" aria-label="Filter notes by subject"><option value="All">All subjects</option></select>
                 <span id="notes-count" class="count-label">0 files</span>
+              </div>
+            </div>
+            <div class="notes-browser">
+              <label class="visually-hidden" for="notes-search">Search notes by title or keyword</label>
+              <input id="notes-search" class="notes-search" type="search" placeholder="Search notes by title or keyword..." autocomplete="off">
+              <div class="notes-filter-row">
+                <div id="notes-subject-filters" class="notes-subject-filters" role="group" aria-label="Filter notes by subject">
+                  <button class="notes-filter-chip is-active" type="button" data-notes-subject="All" aria-pressed="true">All</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Algebra" aria-pressed="false">Algebra</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Geometry" aria-pressed="false">Geometry</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Science I" aria-pressed="false">Science I</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Science II" aria-pressed="false">Science II</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="English" aria-pressed="false">English</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Hindi" aria-pressed="false">Hindi</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Marathi" aria-pressed="false">Marathi</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="History" aria-pressed="false">History</button>
+                  <button class="notes-filter-chip" type="button" data-notes-subject="Geography" aria-pressed="false">Geography</button>
+                </div>
+                <button id="reset-notes-filters" class="notes-reset-button" type="button" hidden>Reset filters</button>
               </div>
             </div>
             <div class="notes-list">
@@ -225,6 +273,7 @@
               <p id="upload-message" class="form-message" role="status"></p>
             </form>
             <div id="notes-list-container"></div>
+            <p id="notes-empty-state" class="notes-empty-state" role="status" hidden></p>
           </section>
 
           <section class="section-block ask-section" aria-labelledby="ask-title">
@@ -256,14 +305,22 @@
             <span class="live-label"><i></i> Live discussion</span>
           </div>
           <div class="feed-tools" aria-label="Filter and search questions">
+            <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search question text or author..." autocomplete="off"></label>
             <label class="feed-subject-filter" for="question-subject-filter">Subject
               <select id="question-subject-filter" aria-label="Filter questions by subject"><option value="All">All subjects</option></select>
             </label>
-            <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search doubts..." autocomplete="off"></label>
+            <label class="unanswered-filter" for="unanswered-only-filter">
+              <input id="unanswered-only-filter" type="checkbox">
+              <span>Unanswered only</span>
+            </label>
           </div>
           <div id="questions-feed" class="feed-list">
             <article class="question-card"><div class="feed-avatar blue">M</div><div class="question-body"><div class="question-meta"><strong>Mira Patel</strong><span>Algebra &middot; 14 min ago</span></div><p>How do we know which factorisation method to use for a quadratic expression?</p><div class="answer-count">&#8617; 3 answers</div></div></article>
             <article class="question-card"><div class="feed-avatar orange">R</div><div class="question-body"><div class="question-meta"><strong>Rohan Mehta</strong><span>Science I &middot; 42 min ago</span></div><p>Can someone explain the difference between an atom and an ion in simple terms?</p><div class="answer-count">&#8617; 5 answers</div></div></article>
+          </div>
+          <div id="questions-empty-state" class="questions-empty-state" role="status" hidden>
+            <p>No questions match these filters.</p>
+            <button id="reset-question-filters" class="button button-outline" type="button">Reset Filters</button>
           </div>
         </section>
       </div>

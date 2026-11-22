@@ -11,7 +11,9 @@ let allQuestions = [];
 let allNotes = [];
 let activeSubject = "All";
 let activeNotesSubject = "All";
+let activeNotesSearch = "";
 let searchTerm = "";
+let unansweredOnly = false;
 let locallyPostedAnswerIds = new Set();
 let realtimeQuestionsChannel = null;
 let realtimeNotesChannel = null;
@@ -22,6 +24,7 @@ let notesListObserver = null;
 let activeNoteUploadXhr = null;
 let noteUploadCancelRequested = false;
 let sessionHeartbeat = null;
+let portalNoticeRefreshTimer = null;
 
 const loginModal = document.getElementById("login-modal");
 const welcomePage = document.getElementById("welcome-page");
@@ -210,14 +213,8 @@ function subjectClass(subject) {
 function renderFilteredQuestions() {
   const feed = document.getElementById("questions-feed");
   const homeFeed = document.getElementById("home-questions-feed");
-  const normalizedSearch = searchTerm.trim().toLowerCase();
-  const filteredQuestions = allQuestions.filter((item) => {
-    const subject = item.subject || "General";
-    const matchesSubject = activeSubject === "All" || subject === activeSubject;
-    const searchableText = `${item.author_name || item.author || ""} ${subject} ${item.question_text || item.question || ""}`.toLowerCase();
-    return matchesSubject && (!normalizedSearch || searchableText.includes(normalizedSearch));
-  });
-  feed.replaceChildren(...filteredQuestions.map((item) => renderQuestionCard(item, "all")));
+  if (!feed) return;
+  feed.replaceChildren(...allQuestions.map((item) => renderQuestionCard(item, "all")));
   const recentQuestions = allQuestions.slice(0, 3);
   if (homeFeed) {
     homeFeed.replaceChildren(...recentQuestions.map((item) => renderQuestionCard(item, "home")));
@@ -228,31 +225,100 @@ function renderFilteredQuestions() {
       homeFeed.appendChild(emptyState);
     }
   }
-  [...new Set([...filteredQuestions, ...recentQuestions]
+  applyQuestionFilters();
+  [...new Set([...allQuestions, ...recentQuestions]
     .map((item) => item.id)
     .filter((id) => id !== undefined && id !== null))]
     .forEach((questionId) => void fetchAnswersForQuestion(questionId));
+}
+
+function applyQuestionFilters() {
+  const feed = document.getElementById("questions-feed");
+  const emptyState = document.getElementById("questions-empty-state");
+  if (!feed || !emptyState) return;
+
+  const normalizedSearch = searchTerm.trim().toLocaleLowerCase();
+  const cards = [...feed.querySelectorAll(".question-card")];
+  let visibleCount = 0;
+  const hasPendingReplyCounts = unansweredOnly && cards.some((card) => {
+    const matchesSubject = activeSubject === "All"
+      || (card.dataset.subject || "General").toLocaleLowerCase() === activeSubject.toLocaleLowerCase();
+    const searchableText = card.dataset.searchText || card.textContent.toLocaleLowerCase();
+    const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch);
+    return matchesSubject && matchesSearch && card.dataset.replyCount === "unknown";
+  });
+
+  cards.forEach((card) => {
+    const matchesSubject = activeSubject === "All"
+      || (card.dataset.subject || "General").toLocaleLowerCase() === activeSubject.toLocaleLowerCase();
+    const searchableText = card.dataset.searchText || card.textContent.toLocaleLowerCase();
+    const matchesSearch = !normalizedSearch || searchableText.includes(normalizedSearch);
+    const matchesUnanswered = !unansweredOnly || card.dataset.replyCount === "0";
+    const isVisible = matchesSubject && matchesSearch && matchesUnanswered;
+    card.hidden = !isVisible;
+    if (isVisible) visibleCount += 1;
+  });
+
+  emptyState.hidden = visibleCount > 0;
+  const message = emptyState.querySelector("p");
+  const resetButton = document.getElementById("reset-question-filters");
+  if (message) {
+    message.textContent = hasPendingReplyCounts
+      ? "Checking reply counts..."
+      : cards.length
+        ? "No questions match these filters."
+        : "No questions have been posted yet.";
+  }
+  if (resetButton) resetButton.hidden = hasPendingReplyCounts || (!cards.length && !normalizedSearch && activeSubject === "All" && !unansweredOnly);
 }
 
 function populateSubjectOptions() {
   const questionSubject = document.getElementById("question-subject");
   const questionFilter = document.getElementById("question-subject-filter");
   const noteCategory = document.getElementById("note-category-input");
-  const notesFilter = document.getElementById("notes-filter");
 
   SUBJECTS.forEach((subject) => {
     const questionOption = new Option(subject, subject);
     questionSubject.add(questionOption);
     questionFilter.add(new Option(subject, subject));
     noteCategory.add(new Option(subject, subject));
-    notesFilter.add(new Option(subject, subject));
   });
 }
 
 function renderNotes() {
   const notesContainer = document.getElementById("notes-list-container");
-  const filteredNotes = allNotes.filter((note) => activeNotesSubject === "All" || note.subject === activeNotesSubject);
+  const emptyState = document.getElementById("notes-empty-state");
+  if (!notesContainer) return;
+  const normalizedSearch = activeNotesSearch.trim().toLocaleLowerCase();
+  const filteredNotes = allNotes.filter((note) => {
+    const matchesSubject = activeNotesSubject === "All"
+      || String(note.subject || "").toLocaleLowerCase() === activeNotesSubject.toLocaleLowerCase();
+    const fileName = String(note.file_url || "").split(/[/?#]/).pop().replace(/%20/g, " ");
+    const searchableText = [
+      note.title,
+      note.subject,
+      note.uploaded_by,
+      note.uploader_name,
+      note.student_name,
+      note.author_name,
+      fileName
+    ].filter(Boolean).join(" ").toLocaleLowerCase();
+    return matchesSubject && (!normalizedSearch || searchableText.includes(normalizedSearch));
+  });
   notesContainer.replaceChildren(...filteredNotes.map(renderNoteCard));
+  if (emptyState) {
+    emptyState.hidden = filteredNotes.length > 0;
+    emptyState.textContent = allNotes.length
+      ? "No notes match your search or subject filter."
+      : "No study notes have been uploaded yet.";
+  }
+  document.querySelectorAll(".notes-filter-chip").forEach((chip) => {
+    const isActive = chip.dataset.notesSubject === activeNotesSubject;
+    chip.classList.toggle("is-active", isActive);
+    chip.setAttribute("aria-pressed", String(isActive));
+  });
+  const resetButton = document.getElementById("reset-notes-filters");
+  if (resetButton) resetButton.hidden = activeNotesSubject === "All" && !activeNotesSearch;
   updateNotesCount();
 }
 
@@ -388,7 +454,102 @@ async function showApp(session) {
   subscribeToAnswerChanges();
   subscribeToNoteChanges();
   subscribeToPollChanges();
+  await loadPortalNotice(isAdmin);
+  if (portalNoticeRefreshTimer) clearInterval(portalNoticeRefreshTimer);
+  portalNoticeRefreshTimer = setInterval(() => {
+    void loadPortalNotice(false);
+  }, 60000);
   await Promise.all([renderCodes(), fetchQuestions(), fetchNotes(), fetchPolls()]);
+}
+
+function renderPortalNotice(notice) {
+  const banner = document.getElementById("portal-notice-banner");
+  const textElement = document.getElementById("portal-notice-text");
+  const targetElement = document.getElementById("portal-notice-target");
+  const countdown = document.getElementById("portal-notice-countdown");
+  if (!banner || !textElement || !targetElement || !countdown) return;
+
+  if (!notice?.is_active || !notice.notice_text) {
+    banner.hidden = true;
+    return;
+  }
+
+  textElement.textContent = notice.notice_text;
+  banner.hidden = false;
+  const targetAt = notice.target_at ? new Date(notice.target_at) : null;
+  if (!targetAt || Number.isNaN(targetAt.getTime())) {
+    targetElement.hidden = true;
+    countdown.hidden = true;
+    return;
+  }
+
+  targetElement.hidden = false;
+  targetElement.textContent = `Target: ${targetAt.toLocaleString([], { dateStyle: "medium", timeStyle: "short" })}`;
+  const remaining = targetAt.getTime() - Date.now();
+  if (remaining <= 0) {
+    targetElement.textContent += " · Target time has passed";
+    countdown.hidden = true;
+    return;
+  }
+
+  countdown.hidden = false;
+  const totalMinutes = Math.floor(remaining / 60000);
+  document.getElementById("notice-countdown-days").textContent = String(Math.floor(totalMinutes / 1440));
+  document.getElementById("notice-countdown-hours").textContent = String(Math.floor((totalMinutes % 1440) / 60)).padStart(2, "0");
+  document.getElementById("notice-countdown-minutes").textContent = String(totalMinutes % 60).padStart(2, "0");
+}
+
+async function loadPortalNotice(populateAdminForm = false) {
+  const banner = document.getElementById("portal-notice-banner");
+  const { data: notice, error } = await supabaseClient
+    .from("PortalNotices")
+    .select("notice_text, target_at, is_active")
+    .eq("notice_id", 1)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (error) {
+    console.error("Unable to load the portal notice.", error);
+    if (populateAdminForm && isAdmin) {
+      showMessage(document.getElementById("portal-notice-admin-message"), error.message || "Unable to load the current notice.", true);
+    }
+    if (banner && banner.hidden) {
+      banner.hidden = false;
+      document.getElementById("portal-notice-text").textContent = "The current notice could not be loaded. Please try again later.";
+      document.getElementById("portal-notice-target").hidden = true;
+      document.getElementById("portal-notice-countdown").hidden = true;
+    }
+    return;
+  }
+
+  renderPortalNotice(notice);
+  if (populateAdminForm && isAdmin) {
+    document.getElementById("portal-notice-input").value = notice?.notice_text || "";
+    if (notice?.target_at) {
+      const localTarget = new Date(notice.target_at);
+      localTarget.setMinutes(localTarget.getMinutes() - localTarget.getTimezoneOffset());
+      document.getElementById("portal-notice-date").value = localTarget.toISOString().slice(0, 16);
+    } else {
+      document.getElementById("portal-notice-date").value = "";
+    }
+    showMessage(document.getElementById("portal-notice-admin-message"), "");
+  }
+}
+
+async function persistPortalNotice({ isActive, noticeText = null, targetAt = null }) {
+  if (!isAdmin || String(activeSession?.role || "").toLowerCase() !== "admin" || !activeSession) {
+    throw new Error("Only an administrator can manage portal notices.");
+  }
+
+  const { error } = await supabaseClient.rpc("set_portal_notice", {
+    p_division: activeSession.division,
+    p_roll_number: String(activeSession.rollNo || activeSession.roll_number),
+    p_access_code: String(activeSession.accessCode || activeSession.access_code),
+    p_notice_text: noticeText,
+    p_target_at: targetAt,
+    p_is_active: isActive
+  });
+  if (error) throw error;
 }
 
 async function bypassLoginToDashboard(session) {
@@ -555,17 +716,63 @@ function renderAnswerCard(answer) {
   const roleBadge = document.createElement("span");
   const time = document.createElement("time");
   const text = document.createElement("p");
+  const controls = document.createElement("div");
 
   card.className = "answer-card";
+  if (answer.is_verified) card.classList.add("is-verified");
   metadata.className = "answer-card-meta";
   author.textContent = answer.answered_by || "Student";
   roleBadge.className = "note-role-badge";
   roleBadge.textContent = answer.author_role === "admin" ? "Admin" : "Student";
   time.textContent = formatTimestamp(answer.created_at);
   text.textContent = answer.answer_text || "";
-  metadata.append(author, roleBadge, time);
+  metadata.append(author, roleBadge);
+  if (answer.is_verified) {
+    const verifiedBadge = document.createElement("span");
+    verifiedBadge.className = "answer-verified-badge";
+    verifiedBadge.textContent = "Admin Verified";
+    metadata.append(verifiedBadge);
+  }
+  metadata.append(time);
   card.append(metadata, text);
+
+  if (isAdmin && activeSession?.role?.toLowerCase() === "admin") {
+    controls.className = "answer-admin-controls";
+    const verifyButton = document.createElement("button");
+    verifyButton.className = "answer-verify-button";
+    verifyButton.type = "button";
+    verifyButton.textContent = answer.is_verified ? "Unverify" : "Verify / Pin Answer";
+    verifyButton.setAttribute("aria-pressed", String(Boolean(answer.is_verified)));
+    verifyButton.addEventListener("click", async () => {
+      verifyButton.disabled = true;
+      try {
+        await setAnswerVerified(answer.id, !answer.is_verified);
+        await fetchAnswersForQuestion(answer.doubt_id);
+      } catch (error) {
+        console.error("Unable to update answer verification.", error);
+        window.alert(error.message || "Unable to update answer verification.");
+        verifyButton.disabled = false;
+      }
+    });
+    controls.appendChild(verifyButton);
+    card.appendChild(controls);
+  }
   return card;
+}
+
+async function setAnswerVerified(answerId, isVerified) {
+  if (!isAdmin || activeSession?.role?.toLowerCase() !== "admin" || !activeSession) {
+    throw new Error("Only an administrator can verify or unverify replies.");
+  }
+  const { data: updated, error } = await supabaseClient.rpc("set_answer_verified", {
+    p_division: activeSession.division,
+    p_roll_number: String(activeSession.rollNo || activeSession.roll_number),
+    p_access_code: String(activeSession.accessCode || activeSession.access_code),
+    p_answer_id: String(answerId),
+    p_is_verified: isVerified
+  });
+  if (error) throw error;
+  if (!updated) throw new Error("The reply could not be found.");
 }
 
 async function fetchAnswersForQuestion(questionId) {
@@ -587,9 +794,18 @@ async function fetchAnswersForQuestion(questionId) {
       errorMessage.className = "answers-empty";
       errorMessage.textContent = "Replies could not be loaded. Please try again.";
       container.appendChild(errorMessage);
+      const card = container.closest(".question-card");
+      if (card) card.dataset.replyCount = "error";
     });
+    applyQuestionFilters();
     return;
   }
+
+  answers.sort((left, right) => {
+    const verificationOrder = Number(Boolean(right.is_verified)) - Number(Boolean(left.is_verified));
+    if (verificationOrder) return verificationOrder;
+    return new Date(left.created_at).getTime() - new Date(right.created_at).getTime();
+  });
 
   answersContainers.forEach((container) => {
     if (answers.length) {
@@ -601,12 +817,17 @@ async function fetchAnswersForQuestion(questionId) {
       container.replaceChildren(emptyState);
     }
     const answerCount = container.closest(".question-card")?.querySelector(".answer-count");
+    const questionCard = container.closest(".question-card");
+    if (questionCard) {
+      questionCard.dataset.replyCount = String(answers.length);
+    }
     if (answerCount) {
       answerCount.textContent = answers.length
         ? `↩ ${answers.length} ${answers.length === 1 ? "reply" : "replies"}`
         : "↩ No replies yet";
     }
   });
+  applyQuestionFilters();
 }
 
 async function postReply(questionId, replyInput, replyButton) {
@@ -1148,6 +1369,9 @@ function renderQuestionCard(item, feedName) {
   const subject = item.subject || "General";
 
   card.className = "question-card";
+  card.dataset.subject = subject;
+  card.dataset.searchText = `${item.author_name || item.author || ""} ${item.question_text || item.question || ""}`.toLocaleLowerCase();
+  card.dataset.replyCount = "unknown";
   card.dataset.feed = feedName;
   avatar.className = "feed-avatar blue";
   avatar.textContent = (item.author_name || item.author || "S").charAt(0).toUpperCase();
@@ -1207,14 +1431,15 @@ function subscribeToAnswerChanges() {
     .channel("realtime-answers")
     .on(
       "postgres_changes",
-      { event: "INSERT", schema: "public", table: "answers" },
+      { event: "*", schema: "public", table: "answers" },
       (payload) => {
         const answerId = payload.new?.id;
-        if (answerId && locallyPostedAnswerIds.has(answerId)) {
+        if (payload.eventType === "INSERT" && answerId && locallyPostedAnswerIds.has(answerId)) {
           locallyPostedAnswerIds.delete(answerId);
           return;
         }
-        if (payload.new?.doubt_id) void fetchAnswersForQuestion(payload.new.doubt_id);
+        const questionId = payload.new?.doubt_id || payload.old?.doubt_id;
+        if (questionId) void fetchAnswersForQuestion(questionId);
       }
     )
     .subscribe((status) => {
@@ -1389,7 +1614,9 @@ const floatingLogoutButton = document.getElementById("floating-logout-button");
 async function performLogout() {
   await releaseActiveSession();
   if (sessionHeartbeat) clearInterval(sessionHeartbeat);
+  if (portalNoticeRefreshTimer) clearInterval(portalNoticeRefreshTimer);
   sessionHeartbeat = null;
+  portalNoticeRefreshTimer = null;
   activeSession = null;
   isAdmin = false;
   updateUIState(false);
@@ -1714,21 +1941,112 @@ document.getElementById("upload-notes-form").addEventListener("submit", async (e
 
 const noteFileInput = document.getElementById("note-file-input");
 
+document.getElementById("portal-notice-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const message = document.getElementById("portal-notice-admin-message");
+  const submitButton = document.getElementById("save-portal-notice");
+  if (!isAdmin || String(activeSession?.role || "").toLowerCase() !== "admin") {
+    showMessage(message, "Only an administrator can manage portal notices.", true);
+    return;
+  }
+
+  const noticeText = document.getElementById("portal-notice-input").value.trim();
+  const dateValue = document.getElementById("portal-notice-date").value;
+  const targetDate = dateValue ? new Date(dateValue) : null;
+  if (!noticeText) {
+    showMessage(message, "Enter notice text before publishing.", true);
+    return;
+  }
+  if (targetDate && Number.isNaN(targetDate.getTime())) {
+    showMessage(message, "Enter a valid target date and time.", true);
+    return;
+  }
+
+  submitButton.disabled = true;
+  try {
+    await persistPortalNotice({
+      isActive: true,
+      noticeText,
+      targetAt: targetDate ? targetDate.toISOString() : null
+    });
+    renderPortalNotice({ is_active: true, notice_text: noticeText, target_at: targetDate?.toISOString() || null });
+    showMessage(message, "Notice published.");
+  } catch (error) {
+    console.error("Unable to publish portal notice.", error);
+    showMessage(message, error.message || "Unable to publish notice.", true);
+  } finally {
+    submitButton.disabled = false;
+  }
+});
+
+document.getElementById("clear-portal-notice").addEventListener("click", async (event) => {
+  const clearButton = event.currentTarget;
+  const message = document.getElementById("portal-notice-admin-message");
+  if (!isAdmin || String(activeSession?.role || "").toLowerCase() !== "admin") {
+    showMessage(message, "Only an administrator can manage portal notices.", true);
+    return;
+  }
+  if (!window.confirm("Clear the active portal notice?")) return;
+
+  clearButton.disabled = true;
+  try {
+    await persistPortalNotice({ isActive: false });
+    renderPortalNotice(null);
+    document.getElementById("portal-notice-form").reset();
+    showMessage(message, "Active notice cleared.");
+  } catch (error) {
+    console.error("Unable to clear portal notice.", error);
+    showMessage(message, error.message || "Unable to clear notice.", true);
+  } finally {
+    clearButton.disabled = false;
+  }
+});
+
 populateSubjectOptions();
 
 document.getElementById("question-subject-filter").addEventListener("change", (event) => {
   activeSubject = event.target.value;
-  renderFilteredQuestions();
+  applyQuestionFilters();
 });
 
-document.getElementById("notes-filter").addEventListener("change", (event) => {
-  activeNotesSubject = event.target.value;
+document.getElementById("notes-search").addEventListener("input", (event) => {
+  activeNotesSearch = event.target.value;
+  renderNotes();
+});
+
+document.getElementById("notes-subject-filters").addEventListener("click", (event) => {
+  const chip = event.target.closest("[data-notes-subject]");
+  if (!chip) return;
+  activeNotesSubject = chip.dataset.notesSubject || "All";
+  renderNotes();
+});
+
+document.getElementById("reset-notes-filters").addEventListener("click", () => {
+  activeNotesSearch = "";
+  activeNotesSubject = "All";
+  document.getElementById("notes-search").value = "";
   renderNotes();
 });
 
 document.getElementById("question-search").addEventListener("input", (event) => {
   searchTerm = event.target.value;
-  renderFilteredQuestions();
+  applyQuestionFilters();
+});
+
+document.getElementById("unanswered-only-filter").addEventListener("change", (event) => {
+  unansweredOnly = event.target.checked;
+  applyQuestionFilters();
+});
+
+document.getElementById("reset-question-filters").addEventListener("click", () => {
+  activeSubject = "All";
+  searchTerm = "";
+  unansweredOnly = false;
+  document.getElementById("question-subject-filter").value = "All";
+  document.getElementById("question-search").value = "";
+  document.getElementById("unanswered-only-filter").checked = false;
+  applyQuestionFilters();
 });
 
 async function initApp() {
