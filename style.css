@@ -15,6 +15,7 @@
 
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
+svg { max-width: 100%; height: auto; }
 html { scroll-behavior: smooth; }
 body {
   margin: 0;
@@ -3483,4 +3484,19 @@ button:disabled { cursor: not-allowed; opacity: .58; transform: none; }
   .admin-code-form input, .admin-code-form select { height: 37px; padding: 0 8px; font-size: 10px; }
   .code-list-wrap { padding: 12px; }
   .notice-admin-action { padding: 12px; }
+}
+
+#login-modal .login-field-icon,
+.login-card .login-field-icon,
+.input-row svg {
+  width: 18px;
+  height: 18px;
+  flex: 0 0 18px;
+  flex-shrink: 0;
+}
+
+.brand-logo svg,
+#login-modal .login-star-mark svg {
+  width: 48px;
+  height: 48px;
 }
