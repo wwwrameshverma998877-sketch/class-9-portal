@@ -44,6 +44,22 @@ function syncUploadSourceUI() {
 }
 
 const FOCUS_ACTIVITY_KEY = "classPortal.studentFocusActivity";
+const PROFILE_NOTES_VIEWED_KEY = "northstar.profileNotesViewed";
+const PROFILE_NOTIFICATIONS_KEY = "northstar.profileNotificationsEnabled";
+const NOTIFICATION_STATE_PREFIX = "northstar.notificationCenter.v1.";
+const NOTIFICATION_PROMPT_ANSWERED_SUFFIX = ".permissionPromptAnswered";
+let profileDataRequestId = 0;
+let profileActivityLoaded = false;
+let profileRecentQuestions = [];
+let profileRecentReplies = [];
+let profileStats = { questions: 0, notesViewed: 0, pollVotes: 0 };
+let notificationStateKey = "";
+let notificationState = {
+  lastCheckedAt: 0,
+  items: [],
+  knownPollIds: null,
+  noticeFingerprint: null
+};
 
 function getFocusActivityMap() {
   try {
@@ -130,10 +146,11 @@ function updateUIState(loggedIn) {
   document.querySelectorAll(".reply-button, .reply-form input").forEach((control) => {
     control.disabled = !loggedIn;
     if (control.matches(".reply-button")) {
-      control.textContent = loggedIn ? "Post Reply" : "Login to reply...";
+      control.textContent = "➤";
+      control.setAttribute("aria-label", loggedIn ? "Send reply" : "Login to reply");
       control.title = loggedIn ? "Post a reply" : "Log in to participate.";
     } else {
-      control.placeholder = loggedIn ? "Write an answer..." : "Login to reply...";
+      control.placeholder = loggedIn ? "Write a reply..." : "Login to reply...";
     }
   });
   const uploadForm = document.getElementById("upload-notes-form");
@@ -276,6 +293,7 @@ function populateSubjectOptions() {
   const questionSubject = document.getElementById("question-subject");
   const questionFilter = document.getElementById("question-subject-filter");
   const noteCategory = document.getElementById("note-category-input");
+  const questionPills = document.getElementById("question-subject-pills");
 
   SUBJECTS.forEach((subject) => {
     const questionOption = new Option(subject, subject);
@@ -283,6 +301,24 @@ function populateSubjectOptions() {
     questionFilter.add(new Option(subject, subject));
     noteCategory.add(new Option(subject, subject));
   });
+
+  if (questionPills) {
+    const featuredSubjects = ["Algebra", "Geometry", "Science I", "Science II"];
+    const orderedSubjects = [
+      "All",
+      ...featuredSubjects.filter((subject) => SUBJECTS.includes(subject)),
+      ...SUBJECTS.filter((subject) => !featuredSubjects.includes(subject))
+    ];
+    questionPills.replaceChildren(...orderedSubjects.map((subject) => {
+      const pill = document.createElement("button");
+      pill.type = "button";
+      pill.className = "subject-filter-pill";
+      pill.dataset.subjectFilter = subject;
+      pill.setAttribute("aria-pressed", String(subject === "All"));
+      pill.textContent = subject;
+      return pill;
+    }));
+  }
 }
 
 function renderNotes() {
@@ -342,14 +378,794 @@ function renderUser(session) {
   const rollElement = document.getElementById("header-class");
   const welcomeElement = document.getElementById("welcome-name");
   const avatarElement = document.getElementById("header-avatar");
+  const profileName = document.getElementById("profile-student-name");
+  const profileDivision = document.getElementById("profile-student-division");
+  const profileRoll = document.getElementById("profile-student-roll");
   if (nameElement) nameElement.textContent = session.name;
   if (rollElement) rollElement.textContent = isAdmin
     ? "Portal administrator"
     : `Roll no ${getRollNo(session)} · ${session.division || "Division not set"}`;
   if (welcomeElement) welcomeElement.textContent = session.name.split(" ")[0];
   if (avatarElement) avatarElement.textContent = session.name.charAt(0).toUpperCase();
+  if (profileName) profileName.textContent = session.name || "Student";
+  if (profileDivision) profileDivision.textContent = session.division || "-";
+  if (profileRoll) profileRoll.textContent = getRollNo(session);
   if (adminPanel) adminPanel.hidden = !isAdmin;
   if (questionSection) questionSection.hidden = String(session.role || "").toLowerCase() === "admin";
+}
+
+function getProfileStudentKey(session) {
+  const rollNo = String(getRollNo(session) || "").trim();
+  const division = String(session?.division || "").trim().toLowerCase();
+  if (!rollNo || rollNo === "-") return "";
+  return `${division}:${rollNo}`;
+}
+
+function getProfileNotesViewedMap() {
+  try {
+    const raw = localStorage.getItem(PROFILE_NOTES_VIEWED_KEY);
+    if (!raw) return {};
+    const value = JSON.parse(raw);
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+    console.error("Saved Notes Viewed data has an invalid format.");
+  } catch (error) {
+    console.error("Unable to read Notes Viewed data.", error);
+  }
+  return {};
+}
+
+function getProfileNotesViewedCount(session) {
+  const studentKey = getProfileStudentKey(session);
+  const count = Number(getProfileNotesViewedMap()[studentKey]);
+  return studentKey && Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+}
+
+function renderProfileStats() {
+  const values = {
+    "profile-total-questions": profileStats.questions,
+    "profile-notes-viewed": profileStats.notesViewed,
+    "profile-poll-votes": profileStats.pollVotes
+  };
+  Object.entries(values).forEach(([id, value]) => {
+    const element = document.getElementById(id);
+    if (!element) return;
+    const count = Number(value);
+    element.textContent = String(Number.isFinite(count) && count > 0 ? Math.floor(count) : 0);
+  });
+}
+
+function recordProfileNoteView() {
+  const studentKey = getProfileStudentKey(activeSession);
+  if (!studentKey) return;
+  const viewedMap = getProfileNotesViewedMap();
+  const count = Number(viewedMap[studentKey]);
+  const nextCount = (Number.isFinite(count) && count > 0 ? Math.floor(count) : 0) + 1;
+  viewedMap[studentKey] = nextCount;
+  profileStats.notesViewed = nextCount;
+  renderProfileStats();
+  try {
+    localStorage.setItem(PROFILE_NOTES_VIEWED_KEY, JSON.stringify(viewedMap));
+  } catch (error) {
+    console.error("Unable to save Notes Viewed data.", error);
+  }
+}
+
+async function fetchProfileQuestions(session) {
+  const rollNo = String(getRollNo(session) || "").trim();
+  if (!rollNo || rollNo === "-" || !session.name) return { count: 0, items: [] };
+  const { data, count, error } = await supabaseClient
+    .from("questions")
+    .select("id, subject, question_text, created_at", { count: "exact" })
+    .eq("standard", rollNo)
+    .eq("author_name", session.name)
+    .order("created_at", { ascending: false })
+    .limit(5);
+  if (error) throw error;
+  const items = data || [];
+  return { count: Number.isFinite(count) ? count : items.length, items };
+}
+
+async function fetchProfileReplies(session) {
+  if (!session.name) return [];
+  const { data, error } = await supabaseClient
+    .from("answers")
+    .select("id, answer_text, created_at")
+    .eq("answered_by", session.name)
+    .order("created_at", { ascending: false })
+    .limit(5);
+  if (error) throw error;
+  return data || [];
+}
+
+async function fetchProfilePollVotes(session) {
+  const rollNo = String(getRollNo(session) || "").trim();
+  if (!rollNo || rollNo === "-") return 0;
+  const { count, error } = await supabaseClient
+    .from("poll_votes")
+    .select("poll_id", { count: "exact", head: true })
+    .eq("roll_number", rollNo);
+  if (error) throw error;
+  return Number.isFinite(count) ? count : 0;
+}
+
+async function refreshProfileData(session = activeSession) {
+  if (!session) return;
+  const requestId = ++profileDataRequestId;
+  profileActivityLoaded = false;
+  profileRecentQuestions = [];
+  profileRecentReplies = [];
+  profileStats = {
+    questions: 0,
+    notesViewed: getProfileNotesViewedCount(session),
+    pollVotes: 0
+  };
+  renderProfileStats();
+
+  const [questions, replies, pollVotes] = await Promise.all([
+    fetchProfileQuestions(session).catch((error) => {
+      console.error("Unable to load profile question activity.", error);
+      return null;
+    }),
+    fetchProfileReplies(session).catch((error) => {
+      console.error("Unable to load profile reply activity.", error);
+      return null;
+    }),
+    fetchProfilePollVotes(session).catch((error) => {
+      console.error("Unable to load profile poll vote count.", error);
+      return null;
+    })
+  ]);
+  if (requestId !== profileDataRequestId || activeSession !== session) return;
+
+  profileStats.questions = questions?.count || 0;
+  profileStats.pollVotes = pollVotes || 0;
+  profileRecentQuestions = questions?.items || [];
+  profileRecentReplies = replies || [];
+  profileActivityLoaded = true;
+  renderProfileStats();
+  const activityDialog = document.getElementById("profile-activity-dialog");
+  if (activityDialog?.open) renderProfileActivity();
+}
+
+function appendProfileActivityGroup(container, title, records, getText, emptyText) {
+  const group = document.createElement("section");
+  const heading = document.createElement("h3");
+  heading.className = "profile-activity-heading";
+  heading.textContent = title;
+  group.className = "profile-activity-group";
+  group.appendChild(heading);
+
+  if (!records.length) {
+    const empty = document.createElement("p");
+    empty.className = "profile-dialog-muted";
+    empty.textContent = emptyText;
+    group.appendChild(empty);
+  } else {
+    records.forEach((record) => {
+      const item = document.createElement("article");
+      const text = document.createElement("p");
+      item.className = "profile-activity-item";
+      text.textContent = getText(record);
+      item.appendChild(text);
+      if (record.created_at) {
+        const date = new Date(record.created_at);
+        if (!Number.isNaN(date.getTime())) {
+          const time = document.createElement("time");
+          time.dateTime = date.toISOString();
+          time.textContent = date.toLocaleString();
+          item.appendChild(time);
+        }
+      }
+      group.appendChild(item);
+    });
+  }
+  container.appendChild(group);
+}
+
+function renderProfileActivity() {
+  const content = document.getElementById("profile-activity-content");
+  if (!content) return;
+  content.replaceChildren();
+  if (!profileActivityLoaded) {
+    const loading = document.createElement("p");
+    loading.className = "profile-dialog-muted";
+    loading.textContent = "Loading your activity…";
+    content.appendChild(loading);
+    return;
+  }
+
+  appendProfileActivityGroup(
+    content,
+    "Recent Questions",
+    profileRecentQuestions,
+    (question) => `${question.subject ? `${question.subject}: ` : ""}${question.question_text || "Question"}`,
+    "No questions posted yet."
+  );
+  appendProfileActivityGroup(
+    content,
+    "Recent Replies",
+    profileRecentReplies,
+    (reply) => reply.answer_text || "Reply",
+    "No replies posted yet."
+  );
+  const votes = document.createElement("section");
+  const heading = document.createElement("h3");
+  const summary = document.createElement("p");
+  votes.className = "profile-activity-group";
+  heading.className = "profile-activity-heading";
+  heading.textContent = "Poll Votes";
+  summary.className = "profile-dialog-muted";
+  summary.textContent = `${profileStats.pollVotes} ${profileStats.pollVotes === 1 ? "vote" : "votes"} recorded for this account.`;
+  votes.append(heading, summary);
+  content.appendChild(votes);
+}
+
+function openProfileDialog(id) {
+  const dialog = document.getElementById(id);
+  if (!dialog) return;
+  if (typeof dialog.showModal === "function") dialog.showModal();
+  else dialog.setAttribute("open", "");
+}
+
+function closeProfileDialog(dialog) {
+  if (typeof dialog.close === "function") dialog.close();
+  else dialog.removeAttribute("open");
+}
+
+function readProfileNotificationsPreference() {
+  try {
+    const savedValue = localStorage.getItem(PROFILE_NOTIFICATIONS_KEY);
+    return savedValue === null ? true : savedValue === "true";
+  } catch (error) {
+    console.error("Unable to read the notification preference.", error);
+    return true;
+  }
+}
+
+function setProfileSettingsMessage(message) {
+  const status = document.getElementById("profile-settings-message");
+  if (!status) return;
+  status.textContent = message;
+  status.hidden = !message;
+}
+
+function renderProfileNotificationsToggle(enabled) {
+  const toggle = document.getElementById("profile-notifications-toggle");
+  if (!toggle) return;
+  toggle.setAttribute("aria-checked", String(enabled));
+  toggle.classList.toggle("is-enabled", enabled);
+  toggle.title = enabled ? "Notifications enabled" : "Notifications disabled";
+}
+
+function createEmptyNotificationState() {
+  return {
+    lastCheckedAt: 0,
+    items: [],
+    knownPollIds: null,
+    noticeFingerprint: null
+  };
+}
+
+function getNotificationStorageKey(session) {
+  const identity = `${String(session.division || "unknown").trim().toLowerCase()}:${String(getRollNo(session) || "unknown").trim()}`;
+  return `${NOTIFICATION_STATE_PREFIX}${encodeURIComponent(identity)}`;
+}
+
+function readNotificationState(key) {
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return createEmptyNotificationState();
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved !== "object") return createEmptyNotificationState();
+    const items = Array.isArray(saved.items) ? saved.items.filter((item) => {
+      return item
+        && item.key
+        && item.title
+        && ["home", "doubts", "polls"].includes(item.panel)
+        && Number.isFinite(Number(item.createdAt));
+    }).map((item) => ({
+      ...item,
+      key: String(item.key),
+      title: String(item.title),
+      message: String(item.message || ""),
+      createdAt: Number(item.createdAt),
+      unread: Boolean(item.unread)
+    })).slice(0, 50) : [];
+    return {
+      lastCheckedAt: Number.isFinite(saved.lastCheckedAt) ? saved.lastCheckedAt : 0,
+      items,
+      knownPollIds: Array.isArray(saved.knownPollIds) ? saved.knownPollIds.map(String) : null,
+      noticeFingerprint: typeof saved.noticeFingerprint === "string" ? saved.noticeFingerprint : null
+    };
+  } catch (error) {
+    console.error("Unable to read saved notifications.", error);
+    return createEmptyNotificationState();
+  }
+}
+
+function persistNotificationState() {
+  if (!notificationStateKey) return;
+  try {
+    localStorage.setItem(notificationStateKey, JSON.stringify(notificationState));
+  } catch (error) {
+    console.error("Unable to save notification state.", error);
+  }
+}
+
+function initializeNotificationState(session) {
+  notificationStateKey = getNotificationStorageKey(session);
+  notificationState = readNotificationState(notificationStateKey);
+  if (!notificationState.lastCheckedAt) notificationState.lastCheckedAt = Date.now();
+  closeNotificationPopover();
+  persistNotificationState();
+  renderNotificationCenter();
+}
+
+function addNotification({ key, title, message, panel, createdAt = Date.now() }) {
+  if (!notificationStateKey || !key || notificationState.items.some((item) => item.key === String(key))) return;
+  const timestamp = new Date(createdAt).getTime();
+  const createdAtMs = Number.isFinite(timestamp) ? timestamp : Date.now();
+  const notification = {
+    key: String(key),
+    title: String(title || "New notification"),
+    message: String(message || ""),
+    panel,
+    createdAt: createdAtMs,
+    unread: readProfileNotificationsPreference() && createdAtMs > notificationState.lastCheckedAt
+  };
+  notificationState.items.push(notification);
+  notificationState.items.sort((left, right) => right.createdAt - left.createdAt);
+  notificationState.items = notificationState.items.slice(0, 50);
+  persistNotificationState();
+  renderNotificationCenter();
+  if (notification.unread) void deliverSystemNotification(notification);
+}
+
+function observeNewPolls(polls) {
+  if (!notificationStateKey) return;
+  const pollIds = polls.map((poll) => String(poll.poll_id));
+  if (Array.isArray(notificationState.knownPollIds)) {
+    const knownPolls = new Set(notificationState.knownPollIds);
+    polls.forEach((poll) => {
+      const pollId = String(poll.poll_id);
+      if (knownPolls.has(pollId)) return;
+      addNotification({
+        key: `poll:${pollId}`,
+        title: "New class poll",
+        message: poll.title || poll.question || "A new class poll is available.",
+        panel: "polls",
+        createdAt: poll.created_at || Date.now()
+      });
+    });
+  }
+  notificationState.knownPollIds = pollIds.slice(0, 500);
+  persistNotificationState();
+}
+
+function observePortalNotice(notice) {
+  if (!notificationStateKey) return;
+  const fingerprint = notice?.is_active && notice.notice_text
+    ? JSON.stringify([notice.notice_text, notice.target_at || ""])
+    : "";
+  if (notificationState.noticeFingerprint === null) {
+    notificationState.noticeFingerprint = fingerprint;
+    persistNotificationState();
+    return;
+  }
+  if (fingerprint && fingerprint !== notificationState.noticeFingerprint) {
+    addNotification({
+      key: `notice:${Date.now()}:${fingerprint}`,
+      title: "New class announcement",
+      message: notice.notice_text,
+      panel: "home",
+      createdAt: Date.now()
+    });
+  }
+  notificationState.noticeFingerprint = fingerprint;
+  persistNotificationState();
+}
+
+function isOwnedQuestion(question, session = activeSession) {
+  if (!question || !session) return false;
+  const questionRoll = String(question.standard || question.roll_number || question.rollNo || "").trim();
+  const studentRoll = String(getRollNo(session) || "").trim();
+  const questionName = String(question.author_name || question.author || "").trim().toLowerCase();
+  const studentName = String(session.name || "").trim().toLowerCase();
+  const sameDivision = !question.division || String(question.division).toLowerCase() === String(session.division || "").toLowerCase();
+  return questionRoll === studentRoll && questionName === studentName && sameDivision;
+}
+
+function recordQuestionReplyNotification(reply) {
+  if (!reply?.id || !activeSession) return;
+  const question = allQuestions.find((item) => String(item.id) === String(reply.doubt_id));
+  if (!isOwnedQuestion(question)) return;
+  if (String(reply.answered_by || "").trim().toLowerCase() === String(activeSession.name || "").trim().toLowerCase()) return;
+  const author = String(reply.answered_by || "A classmate").trim();
+  addNotification({
+    key: `reply:${reply.id}`,
+    title: `New reply from ${author}`,
+    message: reply.answer_text || "A classmate replied to your question.",
+    panel: "doubts",
+    createdAt: reply.created_at || Date.now()
+  });
+}
+
+async function checkForRecentQuestionReplies(questions) {
+  if (!notificationStateKey || !activeSession) return;
+  const questionIds = questions.filter((question) => isOwnedQuestion(question)).map((question) => question.id).filter(Boolean);
+  if (!questionIds.length) return;
+  const { data: replies, error } = await supabaseClient
+    .from("answers")
+    .select("id, doubt_id, answered_by, answer_text, created_at")
+    .in("doubt_id", questionIds)
+    .gt("created_at", new Date(notificationState.lastCheckedAt).toISOString())
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) {
+    console.error("Unable to check for new replies to your questions.", error);
+    return;
+  }
+  (replies || []).forEach(recordQuestionReplyNotification);
+}
+
+function renderNotificationCenter() {
+  const bell = document.getElementById("notification-bell");
+  const badge = document.getElementById("notification-unread-badge");
+  const list = document.getElementById("notification-list");
+  const empty = document.getElementById("notification-empty");
+  const preferenceNote = document.getElementById("notification-preference-note");
+  const markReadButton = document.getElementById("notification-mark-all-read");
+  if (!bell || !badge || !list || !empty || !preferenceNote || !markReadButton) return;
+
+  const notificationsEnabled = readProfileNotificationsPreference();
+  const unreadCount = notificationsEnabled ? notificationState.items.filter((item) => item.unread).length : 0;
+  badge.hidden = unreadCount === 0;
+  badge.textContent = unreadCount > 99 ? "99+" : String(unreadCount);
+  bell.setAttribute("aria-label", unreadCount ? `Notifications, ${unreadCount} unread` : "Notifications");
+  preferenceNote.hidden = notificationsEnabled;
+  markReadButton.disabled = !notificationState.items.some((item) => item.unread);
+  updateDeviceAlertControls();
+  list.replaceChildren();
+
+  notificationState.items.forEach((notification) => {
+    const item = document.createElement("button");
+    const dot = document.createElement("span");
+    const copy = document.createElement("span");
+    const title = document.createElement("span");
+    const message = document.createElement("span");
+    const time = document.createElement("time");
+    const isUnread = notificationsEnabled && notification.unread;
+    item.type = "button";
+    item.className = `notification-item${isUnread ? " is-unread" : ""}`;
+    item.setAttribute("role", "listitem");
+    dot.className = "notification-item-dot";
+    dot.setAttribute("aria-hidden", "true");
+    copy.className = "notification-item-copy";
+    title.className = "notification-item-title";
+    title.textContent = notification.title;
+    message.className = "notification-item-message";
+    message.textContent = notification.message;
+    time.className = "notification-item-time";
+    time.dateTime = new Date(notification.createdAt).toISOString();
+    time.textContent = formatTimestamp(time.dateTime);
+    copy.append(title, message, time);
+    item.append(dot, copy);
+    item.addEventListener("click", () => {
+      if (notification.unread) {
+        notification.unread = false;
+        persistNotificationState();
+        renderNotificationCenter();
+      }
+      navigateToNotificationPanel(notification.panel);
+      closeNotificationPopover();
+      bell.focus();
+    });
+    list.appendChild(item);
+  });
+  empty.hidden = notificationState.items.length > 0;
+}
+
+function closeNotificationPopover() {
+  const popover = document.getElementById("notification-popover");
+  const bell = document.getElementById("notification-bell");
+  if (!popover || !bell) return;
+  popover.hidden = true;
+  bell.setAttribute("aria-expanded", "false");
+}
+
+function getDeviceNotificationPermission() {
+  try {
+    if (typeof window === "undefined" || !("Notification" in window) || typeof window.Notification !== "function") return "unsupported";
+    return window.Notification.permission || "default";
+  } catch (error) {
+    console.warn("System notification permission is unavailable.", error);
+    return "unsupported";
+  }
+}
+
+function updateDeviceAlertControls() {
+  const button = document.getElementById("notification-enable-device-alerts");
+  const status = document.getElementById("notification-device-status");
+  if (!button || !status) return;
+  const permission = getDeviceNotificationPermission();
+  const requestSupported = permission !== "unsupported" && typeof window.Notification.requestPermission === "function";
+
+  if (permission === "unsupported") {
+    button.disabled = true;
+    button.textContent = "Device Alerts Unavailable";
+    status.textContent = "System alerts are not supported here; in-app notifications still work.";
+  } else if (permission === "granted") {
+    button.disabled = true;
+    button.textContent = "Device Alerts Enabled";
+    status.textContent = readProfileNotificationsPreference()
+      ? "System alerts are enabled on this device."
+      : "Permission is ready; turn on Notifications to receive alerts.";
+  } else if (permission === "denied") {
+    button.disabled = true;
+    button.textContent = "Device Alerts Blocked";
+    status.textContent = "System alerts are blocked in browser settings; in-app notifications still work.";
+  } else if (!requestSupported) {
+    button.disabled = true;
+    button.textContent = "Device Alerts Unavailable";
+    status.textContent = "This browser cannot request system notification permission.";
+  } else {
+    button.disabled = false;
+    button.textContent = "Enable Device Alerts";
+    status.textContent = readProfileNotificationsPreference()
+      ? "Allow system alerts on this device."
+      : "You can grant permission here; the Profile toggle still controls delivery.";
+  }
+}
+
+async function requestDeviceAlertPermission() {
+  const permission = getDeviceNotificationPermission();
+  if (permission === "unsupported" || typeof window.Notification.requestPermission !== "function") {
+    updateDeviceAlertControls();
+    return;
+  }
+  if (permission !== "default") {
+    updateDeviceAlertControls();
+    return;
+  }
+
+  try {
+    await window.Notification.requestPermission();
+  } catch (error) {
+    console.warn("Unable to request system notification permission.", error);
+  }
+  updateDeviceAlertControls();
+}
+
+function navigateToNotificationPanel(panel) {
+  const tab = [...document.querySelectorAll(".dashboard-tab")]
+    .find((dashboardTab) => dashboardTab.dataset.panel === panel);
+  tab?.click();
+}
+
+async function deliverSystemNotification(notification) {
+  const isDeliveryEnabled = () => readProfileNotificationsPreference() && getDeviceNotificationPermission() === "granted";
+  if (!isDeliveryEnabled()) return;
+  const options = {
+    body: notification.message,
+    icon: "/assets/icon.png",
+    badge: "/assets/icon.png",
+    tag: `northstar-${notification.key}`,
+    renotify: false,
+    timestamp: notification.createdAt,
+    data: { panel: notification.panel }
+  };
+
+  let registration = null;
+  if ("serviceWorker" in navigator && typeof navigator.serviceWorker.getRegistration === "function") {
+    try {
+      registration = await navigator.serviceWorker.getRegistration();
+    } catch (error) {
+      console.warn("Unable to find the service worker registration.", error);
+    }
+  }
+  if (!isDeliveryEnabled()) return;
+  if (registration && typeof registration.showNotification === "function") {
+    try {
+      await registration.showNotification(notification.title, options);
+      return;
+    } catch (error) {
+      console.warn("Service worker notification failed; trying the browser fallback.", error);
+    }
+  }
+  if (!isDeliveryEnabled()) return;
+  try {
+    if (typeof window.Notification === "function") {
+      const systemNotification = new window.Notification(notification.title, options);
+      systemNotification.onclick = () => {
+        window.focus();
+        navigateToNotificationPanel(notification.panel);
+        systemNotification.close();
+      };
+    }
+  } catch (error) {
+    console.warn("System notifications are unavailable in this browser context.", error);
+  }
+}
+
+function initializeNotificationCenter() {
+  const bell = document.getElementById("notification-bell");
+  const popover = document.getElementById("notification-popover");
+  const center = document.getElementById("notification-center");
+  if (!bell || !popover || !center) return;
+
+  bell.addEventListener("click", () => {
+    popover.hidden = !popover.hidden;
+    bell.setAttribute("aria-expanded", String(!popover.hidden));
+    if (!popover.hidden) document.getElementById("notification-mark-all-read")?.focus();
+  });
+  document.getElementById("notification-enable-device-alerts")?.addEventListener("click", () => {
+    void requestDeviceAlertPermission();
+  });
+  document.getElementById("notification-mark-all-read")?.addEventListener("click", () => {
+    const checkedAt = Date.now();
+    notificationState.items.forEach((item) => {
+      item.unread = false;
+    });
+    notificationState.lastCheckedAt = checkedAt;
+    persistNotificationState();
+    renderNotificationCenter();
+  });
+  document.addEventListener("click", (event) => {
+    if (!center.contains(event.target)) closeNotificationPopover();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !popover.hidden) {
+      closeNotificationPopover();
+      bell.focus();
+    }
+  });
+  renderNotificationCenter();
+}
+
+function getNotificationPromptAnsweredKey(session) {
+  return `${getNotificationStorageKey(session)}${NOTIFICATION_PROMPT_ANSWERED_SUFFIX}`;
+}
+
+function hasAnsweredNotificationPrompt(session) {
+  try {
+    return ["allowed", "later"].includes(localStorage.getItem(getNotificationPromptAnsweredKey(session)));
+  } catch (error) {
+    console.error("Unable to read notification prompt preference.", error);
+    return false;
+  }
+}
+
+function recordNotificationPromptAnswer(session, answer) {
+  try {
+    localStorage.setItem(getNotificationPromptAnsweredKey(session), answer);
+  } catch (error) {
+    console.error("Unable to save notification prompt preference.", error);
+  }
+}
+
+function closeNotificationPermissionPrompt() {
+  const modal = document.getElementById("notification-permission-modal");
+  if (!modal) return;
+  modal.hidden = true;
+  document.getElementById("notification-bell")?.focus();
+}
+
+function showNotificationPermissionPrompt(session) {
+  if (!session || activeSession !== session || String(session.role || "").toLowerCase() === "admin" || hasAnsweredNotificationPrompt(session)) return;
+  const modal = document.getElementById("notification-permission-modal");
+  if (!modal || !modal.hidden) return;
+  modal.hidden = false;
+  document.getElementById("notification-permission-allow")?.focus();
+}
+
+function initializeNotificationPermissionPrompt() {
+  const modal = document.getElementById("notification-permission-modal");
+  const allowButton = document.getElementById("notification-permission-allow");
+  const laterButton = document.getElementById("notification-permission-later");
+  if (!modal || !allowButton || !laterButton) return;
+
+  allowButton.addEventListener("click", () => {
+    if (!activeSession) return;
+    recordNotificationPromptAnswer(activeSession, "allowed");
+    renderProfileNotificationsToggle(true);
+    try {
+      localStorage.setItem(PROFILE_NOTIFICATIONS_KEY, "true");
+      setProfileSettingsMessage("Notifications enabled for this device.");
+    } catch (error) {
+      console.error("Unable to save the notification preference.", error);
+      setProfileSettingsMessage("Notifications are enabled for this session but could not be saved.");
+    }
+    renderNotificationCenter();
+    void requestDeviceAlertPermission();
+    closeNotificationPermissionPrompt();
+  });
+
+  laterButton.addEventListener("click", () => {
+    if (activeSession) recordNotificationPromptAnswer(activeSession, "later");
+    closeNotificationPermissionPrompt();
+  });
+
+  modal.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      laterButton.click();
+      return;
+    }
+    if (event.key !== "Tab") return;
+    const firstButton = allowButton;
+    const lastButton = laterButton;
+    if (event.shiftKey && document.activeElement === firstButton) {
+      event.preventDefault();
+      lastButton.focus();
+    } else if (!event.shiftKey && document.activeElement === lastButton) {
+      event.preventDefault();
+      firstButton.focus();
+    }
+  });
+}
+
+function initializeProfileSettings() {
+  renderProfileNotificationsToggle(readProfileNotificationsPreference());
+
+  const activityButton = document.getElementById("profile-activity-button");
+  activityButton?.addEventListener("click", () => {
+    openProfileDialog("profile-activity-dialog");
+    renderProfileActivity();
+    void refreshProfileData(activeSession);
+  });
+
+  document.getElementById("profile-notifications-toggle")?.addEventListener("click", (event) => {
+    const toggle = event.currentTarget;
+    const enabled = toggle.getAttribute("aria-checked") !== "true";
+    renderProfileNotificationsToggle(enabled);
+    try {
+      localStorage.setItem(PROFILE_NOTIFICATIONS_KEY, String(enabled));
+      setProfileSettingsMessage(`Notifications ${enabled ? "enabled" : "disabled"} for this device.`);
+    } catch (error) {
+      console.error("Unable to save the notification preference.", error);
+      setProfileSettingsMessage("The notification preference could not be saved on this device.");
+    }
+    if (enabled) void requestDeviceAlertPermission();
+    renderNotificationCenter();
+  });
+
+  document.getElementById("profile-appearance-button")?.addEventListener("click", () => {
+    openProfileDialog("profile-appearance-dialog");
+  });
+  document.getElementById("profile-about-button")?.addEventListener("click", () => {
+    openProfileDialog("profile-about-dialog");
+  });
+  document.getElementById("profile-help-button")?.addEventListener("click", () => {
+    openProfileDialog("profile-help-dialog");
+  });
+  document.getElementById("profile-logout-button")?.addEventListener("click", () => {
+    document.querySelectorAll(".profile-dialog[open]").forEach(closeProfileDialog);
+    void performLogout();
+  });
+
+  document.querySelectorAll(".profile-dialog").forEach((dialog) => {
+    dialog.querySelectorAll("[data-profile-dialog-close]").forEach((button) => {
+      button.addEventListener("click", () => closeProfileDialog(dialog));
+    });
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) closeProfileDialog(dialog);
+    });
+  });
+
+  window.addEventListener("hashchange", () => {
+    if (window.location.hash === "#profile-view" && activeSession) {
+      void refreshProfileData(activeSession);
+    }
+  });
+}
+
+function initializeProfileNoteTracking() {
+  const notesList = document.getElementById("notes-list-container");
+  if (!notesList) return;
+  notesList.addEventListener("click", (event) => {
+    if (!(event.target instanceof Element)) return;
+    if (event.target.closest("a.note-card-link")) recordProfileNoteView();
+  });
 }
 
 function getDeviceToken(preferredToken = "") {
@@ -448,9 +1264,11 @@ function normalizeStoredSession(rawSession) {
 
 async function showApp(session) {
   activeSession = session;
+  initializeNotificationState(session);
   persistSession(session);
   isAdmin = session.role?.toLowerCase() === "admin";
   renderUser(session);
+  void refreshProfileData(session);
   trackStudentActivity("login");
   renderFocusScore();
   welcomePage.hidden = true;
@@ -467,6 +1285,7 @@ async function showApp(session) {
     void loadPortalNotice(false);
   }, 60000);
   await Promise.all([renderCodes(), fetchQuestions(), fetchNotes(), fetchPolls()]);
+  showNotificationPermissionPrompt(session);
 }
 
 function renderPortalNotice(notice) {
@@ -529,6 +1348,7 @@ async function loadPortalNotice(populateAdminForm = false) {
     return;
   }
 
+  observePortalNotice(notice);
   renderPortalNotice(notice);
   if (populateAdminForm && isAdmin) {
     document.getElementById("portal-notice-input").value = notice?.notice_text || "";
@@ -641,6 +1461,7 @@ async function renderCodes() {
 function renderAnswerCard(answer) {
   const card = document.createElement("article");
   const metadata = document.createElement("div");
+  const avatar = document.createElement("div");
   const author = document.createElement("strong");
   const roleBadge = document.createElement("span");
   const time = document.createElement("time");
@@ -650,17 +1471,23 @@ function renderAnswerCard(answer) {
   card.className = "answer-card";
   if (answer.is_verified) card.classList.add("is-verified");
   metadata.className = "answer-card-meta";
+  avatar.className = "answer-avatar";
+  avatar.textContent = (answer.answered_by || "S").trim().charAt(0).toUpperCase();
   author.textContent = answer.answered_by || "Student";
   roleBadge.className = "note-role-badge";
   roleBadge.textContent = answer.author_role === "admin" ? "Admin" : "Student";
   time.textContent = formatTimestamp(answer.created_at);
   text.textContent = answer.answer_text || "";
-  metadata.append(author, roleBadge);
+  metadata.append(avatar, author, roleBadge);
   if (answer.is_verified) {
+    const verifiedHeading = document.createElement("div");
     const verifiedBadge = document.createElement("span");
+    verifiedHeading.className = "answer-verified-heading";
+    verifiedHeading.innerHTML = '<svg viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M10 1.5 17 4v5c0 4.2-2.8 7.4-7 9.5C5.8 16.4 3 13.2 3 9V4l7-2.5Z" fill="currentColor"/><path d="m6.8 9.8 2.1 2.1 4.5-4.7" stroke="#09251c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>';
     verifiedBadge.className = "answer-verified-badge";
     verifiedBadge.textContent = "Admin Verified";
-    metadata.append(verifiedBadge);
+    verifiedHeading.appendChild(verifiedBadge);
+    card.appendChild(verifiedHeading);
   }
   metadata.append(time);
   card.append(metadata, text);
@@ -752,8 +1579,8 @@ async function fetchAnswersForQuestion(questionId) {
     }
     if (answerCount) {
       answerCount.textContent = answers.length
-        ? `↩ ${answers.length} ${answers.length === 1 ? "reply" : "replies"}`
-        : "↩ No replies yet";
+        ? `💬 ${answers.length}`
+        : "💬 0";
     }
   });
   applyQuestionFilters();
@@ -788,11 +1615,26 @@ async function postReply(questionId, replyInput, replyButton) {
 function renderReplySection(body, question) {
   const questionId = question.id;
   if (questionId === undefined || questionId === null) return;
+  const threadHeader = document.createElement("div");
+  const backButton = document.createElement("button");
+  const threadTitle = document.createElement("strong");
   const answersList = document.createElement("div");
   const repliesHeading = document.createElement("h4");
   const replyForm = document.createElement("form");
   const replyInput = document.createElement("input");
   const replyButton = document.createElement("button");
+  threadHeader.className = "question-thread-header";
+  backButton.className = "question-thread-back";
+  backButton.type = "button";
+  backButton.textContent = "< Back";
+  threadTitle.textContent = "Doubt Thread";
+  threadHeader.append(backButton, threadTitle);
+  backButton.addEventListener("click", () => {
+    const summary = body.closest(".question-card")?.querySelector(".question-summary");
+    if (!summary) return;
+    toggleQuestionThread(summary);
+    summary.focus();
+  });
   answersList.className = "answers-list";
   answersList.dataset.questionId = String(questionId);
   answersList.setAttribute("aria-live", "polite");
@@ -804,12 +1646,14 @@ function renderReplySection(body, question) {
   answersList.appendChild(loadingMessage);
   replyForm.className = "reply-form";
   replyInput.type = "text";
-  replyInput.placeholder = isLoggedIn ? "Write an answer..." : "Login to reply...";
+  replyInput.className = "reply-input";
+  replyInput.placeholder = isLoggedIn ? "Write a reply..." : "Login to reply...";
   replyInput.required = true;
   replyInput.disabled = !isLoggedIn;
-  replyButton.className = "reply-button button button-outline";
+  replyButton.className = "reply-button reply-submit button button-outline";
   replyButton.type = "submit";
-  replyButton.textContent = isLoggedIn ? "Post Reply" : "Login to reply...";
+  replyButton.textContent = "➤";
+  replyButton.setAttribute("aria-label", isLoggedIn ? "Send reply" : "Login to reply");
   replyButton.disabled = !isLoggedIn;
   replyButton.title = isLoggedIn ? "Post a reply" : "Log in to participate.";
 
@@ -823,7 +1667,7 @@ function renderReplySection(body, question) {
   });
 
   replyForm.append(replyInput, replyButton);
-  body.append(repliesHeading, answersList, replyForm);
+  body.append(threadHeader, repliesHeading, answersList, replyForm);
 }
 
 async function resolveUploaderName(note) {
@@ -855,20 +1699,29 @@ function canDeleteNote(note) {
 
 function renderNoteCard(note) {
   const card = document.createElement("article");
+  const icon = document.createElement("span");
+  const content = document.createElement("div");
   const title = document.createElement("h4");
   const metadata = document.createElement("div");
   const uploader = document.createElement("span");
   const roleBadge = document.createElement("span");
+  const actions = document.createElement("div");
   const link = document.createElement("a");
   const deleteButton = document.createElement("button");
 
   card.className = "note-card";
+  icon.className = "note-card-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 24 24" fill="none"><path d="M6 3.75h8l4.25 4.3v12.2H6a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M14 4v4.5h4.5M8 12h8M8 15.5h6" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  content.className = "note-card-content";
   title.textContent = note.title || "Untitled note";
   metadata.className = "note-card-meta";
   const uploaderName = note.uploaded_by || note.uploader_name || note.student_name || note.author_name || note.roll_number || "Portal member";
   uploader.textContent = `Uploaded by: ${uploaderName}`;
   roleBadge.className = "note-role-badge";
-  roleBadge.textContent = String(note.role || "student").toLowerCase() === "admin" ? "Admin" : "Student";
+  const isAdminUploader = String(note.role || "student").toLowerCase() === "admin";
+  roleBadge.textContent = isAdminUploader ? "Admin" : "Student";
+  if (isAdminUploader) roleBadge.classList.add("note-admin-badge");
   metadata.append(uploader, roleBadge);
   if (note.subject) {
     const subjectBadge = document.createElement("span");
@@ -876,19 +1729,33 @@ function renderNoteCard(note) {
     subjectBadge.textContent = note.subject;
     metadata.append(subjectBadge);
   }
+  actions.className = "note-card-actions";
   link.className = "note-card-link";
   link.href = `https://docs.google.com/viewer?url=${encodeURIComponent(note.file_url)}&embedded=true`;
   link.target = "_blank";
   link.rel = "noopener noreferrer";
   link.textContent = "View PDF";
+  const linkArrow = document.createElement("span");
+  linkArrow.setAttribute("aria-hidden", "true");
+  linkArrow.textContent = " \u2192";
+  link.appendChild(linkArrow);
   deleteButton.className = "button button-outline delete-note-button";
   deleteButton.type = "button";
-  deleteButton.textContent = "Delete Note";
+  deleteButton.setAttribute("aria-label", "Delete note");
+  const deleteIcon = document.createElement("span");
+  deleteIcon.className = "delete-note-icon";
+  deleteIcon.setAttribute("aria-hidden", "true");
+  deleteIcon.innerHTML = '<svg viewBox="0 0 20 20" fill="none"><path d="M3.5 5.5h13M8 5.5V3.7h4v1.8m-6.5 0 .8 10.8h7.4l.8-10.8M8.2 8.3v5.3m3.6-5.3v5.3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  const deleteLabel = document.createElement("span");
+  deleteLabel.textContent = "Delete";
+  deleteButton.append(deleteIcon, deleteLabel);
   const canDelete = canDeleteNote(note);
   deleteButton.disabled = !canDelete;
   deleteButton.title = canDelete ? "Delete this note" : "Only the uploader or an admin can delete this note";
   deleteButton.addEventListener("click", () => void deleteNote(note, card));
-  card.append(title, metadata, link, deleteButton);
+  content.append(title, metadata);
+  actions.append(link, deleteButton);
+  card.append(icon, content, actions);
   return card;
 }
 
@@ -1071,14 +1938,20 @@ function initializePollCreator() {
 
 function renderPollCard(poll, options, userVote) {
   const card = document.createElement("article");
+  const heading = document.createElement("div");
   const question = document.createElement("h4");
+  const liveBadge = document.createElement("span");
   card.className = "poll-card";
   card.dataset.pollId = String(poll.poll_id);
+  heading.className = "poll-card-heading";
+  liveBadge.className = "poll-live-badge";
+  liveBadge.innerHTML = '<i aria-hidden="true"></i><span>Live</span>';
   question.textContent = poll.question || poll.question_text || "Poll";
-  card.append(question);
+  heading.append(question, liveBadge);
+  card.append(heading);
 
   if (userVote) {
-    card.append(createPollResults(options, userVote));
+    card.append(createPollResults(options, userVote), createPollCardFooter(options));
     return card;
   }
 
@@ -1112,15 +1985,45 @@ function renderPollCard(poll, options, userVote) {
     if (selected) void voteInPoll(poll, selected.value, voteButton);
   });
   optionsForm.append(choices, voteButton);
-  card.append(optionsForm);
+  card.append(optionsForm, createPollCardFooter(options));
   return card;
+}
+
+function createPollCardFooter(options) {
+  const footer = document.createElement("div");
+  const totalGroup = document.createElement("span");
+  const icon = document.createElement("span");
+  const count = document.createElement("span");
+  const liveUpdate = document.createElement("span");
+
+  footer.className = "poll-card-footer";
+  totalGroup.className = "poll-total-votes";
+  totalGroup.setAttribute("aria-label", "Total poll votes");
+  icon.className = "poll-total-votes-icon";
+  icon.setAttribute("aria-hidden", "true");
+  icon.innerHTML = '<svg viewBox="0 0 20 20" fill="none"><path d="M7.2 9a2.35 2.35 0 1 0 0-4.7 2.35 2.35 0 0 0 0 4.7ZM13.4 8.3a1.9 1.9 0 1 0 0-3.8M2.8 15.6c.4-2.3 2-3.5 4.4-3.5s4 1.2 4.4 3.5M12 12.4c2.6-.4 4.3.8 4.8 3.2" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+  count.className = "poll-total-votes-count";
+  liveUpdate.className = "poll-live-update";
+  liveUpdate.innerHTML = '<i aria-hidden="true"></i><span>Updates in real-time</span>';
+  totalGroup.append(icon, count);
+  footer.append(totalGroup, liveUpdate);
+  updatePollCardFooter(footer, options);
+  return footer;
+}
+
+function updatePollCardFooter(footer, options) {
+  const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
+  const count = footer.querySelector(".poll-total-votes-count");
+  if (count) count.textContent = `${totalVotes} ${totalVotes === 1 ? "vote" : "votes"}`;
+  const totalGroup = footer.querySelector(".poll-total-votes");
+  if (totalGroup) totalGroup.setAttribute("aria-label", `Total poll votes: ${totalVotes}`);
 }
 
 function createPollResults(options, userVote) {
   const results = document.createElement("div");
   results.className = "poll-results";
   const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
-  options.forEach((option) => {
+  options.forEach((option, index) => {
     const row = document.createElement("div");
     const metadata = document.createElement("div");
     const label = document.createElement("strong");
@@ -1129,12 +2032,13 @@ function createPollResults(options, userVote) {
     const fill = document.createElement("div");
     const votes = Number(option.vote_count || 0);
     const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
-    row.className = `poll-result-row${String(userVote.option_id) === String(option.id) ? " is-voted" : ""}`;
+    row.className = `poll-result-row poll-result-color-${index % 4}${String(userVote.option_id) === String(option.id) ? " is-voted" : ""}`;
     row.dataset.optionId = String(option.id);
     metadata.className = "poll-result-meta";
     label.textContent = option.option_text || option.text || "Option";
     count.className = "poll-result-count";
-    count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
+    count.textContent = `${percentage}%`;
+    count.setAttribute("aria-label", `${percentage}%, ${votes} ${votes === 1 ? "vote" : "votes"}`);
     track.className = "poll-result-track";
     fill.className = "poll-result-fill";
     fill.style.width = "0%";
@@ -1152,16 +2056,20 @@ function updatePollCardResults(card, options, userVote) {
   if (!results) {
     card.querySelector(".poll-vote-form")?.remove();
     results = createPollResults(options, userVote);
-    card.append(results);
+    const footer = card.querySelector(".poll-card-footer");
+    if (footer) card.insertBefore(results, footer);
+    else card.append(results);
+    updatePollCardFooter(card, options);
     return;
   }
 
   const totalVotes = options.reduce((total, option) => total + Number(option.vote_count || 0), 0);
-  options.forEach((option) => {
+  options.forEach((option, index) => {
     const row = [...results.querySelectorAll(".poll-result-row")]
       .find((resultRow) => resultRow.dataset.optionId === String(option.id));
     if (!row) {
       results.replaceWith(createPollResults(options, userVote));
+      updatePollCardFooter(card, options);
       return;
     }
 
@@ -1169,10 +2077,16 @@ function updatePollCardResults(card, options, userVote) {
     const percentage = totalVotes ? Math.round((votes / totalVotes) * 100) : 0;
     const count = row.querySelector(".poll-result-count");
     const fill = row.querySelector(".poll-result-fill");
-    if (count) count.textContent = `${percentage}% · ${votes} ${votes === 1 ? "vote" : "votes"}`;
+    if (count) {
+      count.textContent = `${percentage}%`;
+      count.setAttribute("aria-label", `${percentage}%, ${votes} ${votes === 1 ? "vote" : "votes"}`);
+    }
     if (fill) fill.style.width = `${percentage}%`;
+    row.classList.remove("poll-result-color-0", "poll-result-color-1", "poll-result-color-2", "poll-result-color-3");
+    row.classList.add(`poll-result-color-${index % 4}`);
     row.classList.toggle("is-voted", String(userVote.option_id) === String(option.id));
   });
+  updatePollCardFooter(card, options);
 }
 
 async function fetchPolls({ updateResultsOnly = false, pollId = null } = {}) {
@@ -1186,6 +2100,7 @@ async function fetchPolls({ updateResultsOnly = false, pollId = null } = {}) {
     showMessage(document.getElementById("poll-create-message"), "Unable to load polls.", true);
     return;
   }
+  observeNewPolls(polls || []);
   if (!polls.length) {
     if (!updateResultsOnly) pollList.replaceChildren();
     return;
@@ -1287,38 +2202,82 @@ function subscribeToPollChanges() {
 
 function renderQuestionCard(item, feedName) {
   const card = document.createElement("article");
+  const summary = document.createElement("button");
   const avatar = document.createElement("div");
   const body = document.createElement("div");
   const metadata = document.createElement("div");
   const author = document.createElement("strong");
+  const division = document.createElement("span");
   const time = document.createElement("span");
   const question = document.createElement("p");
   const answers = document.createElement("div");
   const badge = document.createElement("span");
   const subject = item.subject || "General";
+  const divisionName = item.division || item.student_division || "";
+  const thread = document.createElement("div");
 
   card.className = "question-card";
   card.dataset.subject = subject;
-  card.dataset.searchText = `${item.author_name || item.author || ""} ${item.question_text || item.question || ""}`.toLocaleLowerCase();
+  card.dataset.searchText = `${item.author_name || item.author || ""} ${divisionName} ${subject} ${item.question_text || item.question || ""}`.toLocaleLowerCase();
   card.dataset.replyCount = "unknown";
   card.dataset.feed = feedName;
+  summary.className = "question-summary";
+  summary.type = "button";
+  summary.setAttribute("aria-expanded", "false");
   avatar.className = "feed-avatar blue";
   avatar.textContent = (item.author_name || item.author || "S").charAt(0).toUpperCase();
   body.className = "question-body";
   metadata.className = "question-meta";
   author.textContent = item.author_name || item.author || "Student";
-  time.textContent = `Roll no ${getRollNo(item)} · ${formatTimestamp(item.created_at || item.timestamp)}`;
+  time.className = "question-time";
+  time.textContent = formatTimestamp(item.created_at || item.timestamp);
   question.textContent = item.question_text || item.question || "";
   answers.className = "answer-count";
-  answers.textContent = "↩ Loading replies…";
+  answers.textContent = "💬 …";
   badge.className = "question-subject-badge";
   badge.textContent = subject;
-  metadata.append(author, time);
-  body.append(badge, metadata, question, answers);
-  renderReplySection(body, item);
-  card.append(avatar, body);
+  division.className = "question-division-badge";
+  division.textContent = divisionName;
+  if (divisionName) metadata.append(author, division);
+  else metadata.append(author);
+  metadata.append(time);
+  body.append(metadata, badge, question, answers);
+  thread.className = "question-thread";
+  thread.hidden = true;
+  renderReplySection(thread, item);
+  const threadHeader = thread.querySelector(".question-thread-header");
+  if (threadHeader) {
+    threadHeader.hidden = true;
+    card.appendChild(threadHeader);
+  }
+  summary.append(avatar, body);
+  summary.addEventListener("click", () => toggleQuestionThread(summary));
+  card.append(summary, thread);
   return card;
 }
+
+function toggleQuestionThread(summary) {
+  const thread = summary.closest(".question-card")?.querySelector(".question-thread");
+  if (!thread) return;
+  const expanded = summary.getAttribute("aria-expanded") === "true";
+  summary.setAttribute("aria-expanded", String(!expanded));
+  const threadHeader = summary.closest(".question-card")?.querySelector(".question-thread-header");
+  if (threadHeader) threadHeader.hidden = expanded;
+  thread.hidden = expanded;
+}
+
+document.querySelectorAll("#questions-feed .question-summary").forEach((summary) => {
+  summary.addEventListener("click", () => toggleQuestionThread(summary));
+});
+
+document.querySelectorAll("#questions-feed .question-thread-back").forEach((backButton) => {
+  backButton.addEventListener("click", () => {
+    const summary = backButton.closest(".question-card")?.querySelector(".question-summary");
+    if (!summary) return;
+    toggleQuestionThread(summary);
+    summary.focus();
+  });
+});
 
 async function fetchQuestions() {
   const feed = document.getElementById("questions-feed");
@@ -1335,6 +2294,7 @@ async function fetchQuestions() {
 
   allQuestions = questions;
   renderFilteredQuestions();
+  void checkForRecentQuestionReplies(questions);
 }
 
 function subscribeToQuestionChanges() {
@@ -1367,6 +2327,7 @@ function subscribeToAnswerChanges() {
           locallyPostedAnswerIds.delete(answerId);
           return;
         }
+        if (payload.eventType === "INSERT" && payload.new) recordQuestionReplyNotification(payload.new);
         const questionId = payload.new?.doubt_id || payload.old?.doubt_id;
         if (questionId) void fetchAnswersForQuestion(questionId);
       }
@@ -1663,6 +2624,8 @@ document.getElementById("question-form").addEventListener("submit", async (event
     form.reset();
     showMessage(document.getElementById("question-message"), "Your question is now in the feed.");
     await fetchQuestions();
+    const askDoubtToggle = document.getElementById("ask-doubt-toggle");
+    if (askDoubtToggle?.getAttribute("aria-expanded") === "true") askDoubtToggle.click();
   }
   submitButton.disabled = false;
 });
@@ -1928,7 +2891,20 @@ populateSubjectOptions();
 
 document.getElementById("question-subject-filter").addEventListener("change", (event) => {
   activeSubject = event.target.value;
+  document.querySelectorAll(".subject-filter-pill").forEach((pill) => {
+    const isActive = pill.dataset.subjectFilter === activeSubject;
+    pill.classList.toggle("is-active", isActive);
+    pill.setAttribute("aria-pressed", String(isActive));
+  });
   applyQuestionFilters();
+});
+
+document.getElementById("question-subject-pills").addEventListener("click", (event) => {
+  const pill = event.target.closest("[data-subject-filter]");
+  if (!pill) return;
+  const subjectFilter = document.getElementById("question-subject-filter");
+  subjectFilter.value = pill.dataset.subjectFilter;
+  subjectFilter.dispatchEvent(new Event("change", { bubbles: true }));
 });
 
 document.getElementById("notes-search").addEventListener("input", (event) => {
@@ -1967,6 +2943,11 @@ document.getElementById("reset-question-filters").addEventListener("click", () =
   document.getElementById("question-subject-filter").value = "All";
   document.getElementById("question-search").value = "";
   document.getElementById("unanswered-only-filter").checked = false;
+  document.querySelectorAll(".subject-filter-pill").forEach((pill) => {
+    const isActive = pill.dataset.subjectFilter === "All";
+    pill.classList.toggle("is-active", isActive);
+    pill.setAttribute("aria-pressed", String(isActive));
+  });
   applyQuestionFilters();
 });
 
@@ -2028,5 +3009,9 @@ async function initializeApp() {
 initializePollCreator();
 
 document.addEventListener("DOMContentLoaded", () => {
+  initializeNotificationCenter();
+  initializeNotificationPermissionPrompt();
+  initializeProfileSettings();
+  initializeProfileNoteTracking();
   void initApp();
 }, { once: true });

@@ -59,31 +59,70 @@
   </main>
 
   <div id="login-modal" class="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="login-title" hidden>
-    <div class="login-card">
+    <div class="login-card login-screen-card">
       <button id="close-login" class="modal-close icon-button" type="button" aria-label="Close login">&#10005;</button>
-      <div class="brand-mark" aria-hidden="true">N</div>
-      <p class="eyebrow">Northstar learning hub</p>
-      <h1 id="login-title">Login to<br><span>your portal.</span></h1>
-      <p class="login-intro">Use your Division, Roll Number, and Access Code provided by your school.</p>
+      <header class="login-brand">
+        <div class="login-star-mark" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <path d="M32 2 38 26 62 32 38 38 32 62 26 38 2 32 26 26 32 2Z" fill="currentColor"/>
+            <path d="m32 13 4.5 14.5L51 32l-14.5 4.5L32 51l-4.5-14.5L13 32l14.5-4.5L32 13Z" fill="#b9fff7"/>
+            <circle cx="32" cy="32" r="4" fill="#fff"/>
+          </svg>
+        </div>
+        <h1 id="login-title">Northstar</h1>
+        <p class="login-subtitle">Class 9 Study Portal</p>
+        <p class="login-tagline">Learn <span aria-hidden="true">&#8226;</span> Ask <span aria-hidden="true">&#8226;</span> Excel</p>
+      </header>
       <form id="login-form" class="login-form">
-        <label for="student-division">Division</label>
-        <select id="student-division" name="division" required>
-          <option value="">Choose your division</option>
-          <option value="Karma">Karma</option>
-          <option value="Shraddha">Shraddha</option>
-        </select>
-        <label for="roll-no">Student Roll Number</label>
-        <input id="roll-no" name="rollNo" type="number" min="1" max="35" step="1" placeholder="e.g. 12" required>
-        <label for="access-code">Access Code / Password</label>
-        <div class="password-input-wrap">
-          <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Enter your access code" required>
-          <button id="toggle-password-visibility" class="password-toggle-button" type="button" aria-label="Show password" aria-pressed="false">
-            <span aria-hidden="true">👁</span>
-          </button>
+        <div class="login-fields">
+          <div class="login-field">
+            <svg class="login-field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="m2 9 10-5 10 5-10 5L2 9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/>
+              <path d="M6 11v5c3.5 3 8.5 3 12 0v-5M22 9v6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+            </svg>
+            <label class="visually-hidden" for="student-division">Division</label>
+            <select id="student-division" name="division" required>
+              <option value="">Choose division</option>
+              <option value="Karma">Karma</option>
+              <option value="Shraddha">Shraddha</option>
+            </select>
+          </div>
+          <div class="login-field">
+            <svg class="login-field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="8" r="3.5" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M5 20c.5-3.5 3.2-5.5 7-5.5s6.5 2 7 5.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <label class="visually-hidden" for="roll-no">Student Roll Number</label>
+            <input id="roll-no" name="rollNo" type="number" min="1" max="35" step="1" placeholder="Roll Number" required>
+          </div>
+          <div class="login-field">
+            <svg class="login-field-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <rect x="5" y="10" width="14" height="11" rx="2" stroke="currentColor" stroke-width="1.8"/>
+              <path d="M8 10V7a4 4 0 1 1 8 0v3M12 14v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+            <label class="visually-hidden" for="access-code">Access Code / Password</label>
+            <div class="password-input-wrap">
+              <input id="access-code" name="accessCode" type="password" autocomplete="current-password" placeholder="Access Code" required>
+              <button id="toggle-password-visibility" class="password-toggle-button" type="button" aria-label="Show password" aria-pressed="false">
+                <span aria-hidden="true">👁</span>
+              </button>
+            </div>
+          </div>
         </div>
         <p id="login-message" class="form-message" role="alert"></p>
-        <button class="button button-primary button-full" type="submit">Login to Portal <span aria-hidden="true">&#8594;</span></button>
+        <button class="button button-primary button-full" type="submit"><span>Login</span><span class="login-button-arrow" aria-hidden="true">&#8250;</span></button>
       </form>
+      <div class="login-extras">
+        <div class="login-divider"><span>OR</span></div>
+        <p class="login-register-prompt">New Student? <span>Register Here</span></p>
+        <p class="auto-login-status">
+          <svg viewBox="0 0 20 20" fill="none" aria-hidden="true">
+            <path d="M10 1.5 17 4v5c0 4.2-2.8 7.4-7 9.5C5.8 16.4 3 13.2 3 9V4l7-2.5Z" fill="currentColor"/>
+            <path d="m6.8 9.8 2.1 2.1 4.5-4.7" stroke="#06201e" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+          <span>Auto-login enabled</span>
+        </p>
+      </div>
     </div>
   </div>
 
@@ -102,14 +141,45 @@
   </div>
 
   <main id="app-view" class="app-shell" hidden>
-    <header class="topbar">
-      <a class="wordmark" href="#top" aria-label="Northstar home"><span>N</span> northstar</a>
+    <header class="topbar app-topbar">
+      <a class="wordmark" href="#top" aria-label="Northstar home">
+        <span class="northstar-emblem" aria-hidden="true">
+          <svg viewBox="0 0 64 64" fill="none">
+            <path d="M32 2 38 26 62 32 38 38 32 62 26 38 2 32 26 26 32 2Z" fill="currentColor"/>
+            <path d="m32 13 4.5 14.5L51 32l-14.5 4.5L32 51l-4.5-14.5L13 32l14.5-4.5L32 13Z" fill="#b9fff7"/>
+            <circle cx="32" cy="32" r="4" fill="#fff"/>
+          </svg>
+        </span>
+        <span class="wordmark-title">Northstar</span>
+      </a>
       <div id="user-profile" class="user-menu profile-badge">
         <div class="user-copy">
           <strong id="user-display-name">Student Name</strong>
           <span id="header-class">Roll no 1</span>
         </div>
         <div id="header-avatar" class="avatar" aria-hidden="true">S</div>
+        <div id="notification-center" class="notification-center">
+          <button id="notification-bell" class="notification-bell" type="button" aria-label="Notifications" aria-controls="notification-popover" aria-expanded="false">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            <span id="notification-unread-badge" class="notification-unread-badge" aria-hidden="true" hidden></span>
+          </button>
+          <section id="notification-popover" class="notification-popover" aria-label="Notifications" hidden>
+            <header class="notification-popover-header">
+              <h2>Notifications</h2>
+              <button id="notification-mark-all-read" class="notification-mark-read" type="button">Mark all read</button>
+            </header>
+            <p id="notification-preference-note" class="notification-preference-note" hidden>Notifications are off. New alerts will stay quiet.</p>
+            <div class="notification-device-actions">
+              <button id="notification-enable-device-alerts" class="notification-enable-device-alerts" type="button" aria-describedby="notification-device-status">Enable Device Alerts</button>
+              <p id="notification-device-status" class="notification-device-status" role="status" aria-live="polite"></p>
+            </div>
+            <div id="notification-list" class="notification-list" role="list" aria-live="polite"></div>
+            <p id="notification-empty" class="notification-empty" hidden>You’re all caught up.</p>
+          </section>
+        </div>
+        <a class="profile-settings-link" href="#profile-view" aria-label="Open My Profile and Settings">
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Z" stroke="currentColor" stroke-width="1.7"/><path d="m19.4 13.5 1.1.9-1.6 2.8-1.4-.5a7.8 7.8 0 0 1-1.7 1l-.2 1.5h-3.2l-.3-1.5a7.8 7.8 0 0 1-1.7-1l-1.4.5-1.6-2.8 1.1-.9a7 7 0 0 1 0-2l-1.1-.9 1.6-2.8 1.4.5a7.8 7.8 0 0 1 1.7-1l.3-1.5h3.2l.2 1.5a7.8 7.8 0 0 1 1.7 1l1.4-.5 1.6 2.8-1.1.9a7 7 0 0 1 0 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+        </a>
         <button id="change-name-button" class="profile-logout" type="button">Change Name</button>
         <button id="logout-button" class="profile-logout" type="button" title="Log out">Logout</button>
       </div>
@@ -120,63 +190,70 @@
     </header>
 
     <div id="top" class="page-content">
-      <section class="welcome-panel" aria-label="Public announcement">
-        <div>
-          <p class="eyebrow">Northstar announcement</p>
-          <h2>Study smarter,<br><span>together.</span></h2>
-          <p class="welcome-copy">Browse the latest doubts, discover class notes, and join the conversation with your classmates.</p>
-        </div>
-        <div class="progress-orbit" aria-label="Weekly study progress: 68 percent">
-          <div class="progress-inner"><strong>68%</strong><span>weekly focus</span></div>
-        </div>
-      </section>
-
       <section class="section-block admin-panel" aria-labelledby="admin-title" hidden>
-        <div class="section-heading">
-          <div>
+        <div class="section-heading admin-panel-heading">
+          <div class="admin-panel-title">
+            <span class="admin-shield-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3 19 6v5.1c0 4.5-2.8 7.7-7 9.9-4.2-2.2-7-5.4-7-9.9V6l7-3Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m9 12 2 2 4-4.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </span>
+            <div>
             <p class="eyebrow">Portal controls</p>
-            <h3 id="admin-title">Admin panel</h3>
+            <h3 id="admin-title">Admin Panel</h3>
+            </div>
           </div>
-          <span class="status-pill"><i></i> System online</span>
+          <div class="admin-panel-header-actions">
+            <span class="status-pill"><i></i> System online</span>
+            <span class="admin-crown-badge" aria-label="Administrator">
+              <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="m3 7 4.6 3.2L12 4l4.4 6.2L21 7l-2 12H5L3 7Zm3.2 10h11.6l.45-2.75L16 16l-4-5.7L8 16l-2.25-1.75L6.2 17Z"/></svg>
+            </span>
+          </div>
         </div>
-        <div class="admin-grid">
-          <div class="admin-action">
-            <div class="section-icon warm">&#43;</div>
-            <div><h4>Create an access code</h4><p>Assign an access code, division, and roll number to an account.</p></div>
-            <form id="admin-code-form" class="admin-code-form">
-              <input id="new-code" name="code" type="text" placeholder="Code e.g. NS-2026" required>
-              <select id="new-role" name="role" required><option value="student">Student</option><option value="admin">Admin</option></select>
-              <input id="new-student-name" name="studentName" type="text" placeholder="Student name" required>
-              <select id="new-division" name="division" required>
-                <option value="">Division</option>
-                <option value="Karma">Karma</option>
-                <option value="Shraddha">Shraddha</option>
-              </select>
-              <select id="new-roll-no" name="rollNo" required>
-                <option value="">Roll no</option>
-                <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
-                <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
-                <option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
-                <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
-                <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
-                <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
-                <option value="31">31</option><option value="32">32</option><option value="33">33</option><option value="34">34</option><option value="35">35</option>
-              </select>
-              <button id="generate-code" class="button button-outline" type="submit">Create code</button>
-            </form>
-            <p id="admin-code-message" class="form-message" role="status"></p>
+        <nav class="admin-segmented-tabs" aria-label="Admin panel sections">
+          <a class="admin-segment-tab" href="#admin-access-codes">Access Codes</a>
+          <a class="admin-segment-tab" href="#admin-notices-content">Notices &amp; Content</a>
+        </nav>
+        <div id="admin-access-codes" class="admin-tab-panel admin-access-panel">
+          <div class="admin-grid">
+            <div class="admin-action admin-code-card">
+              <div class="section-icon warm">&#43;</div>
+              <div><h4>Create an access code</h4><p>Assign an access code, division, and roll number to an account.</p></div>
+              <form id="admin-code-form" class="admin-code-form">
+                <input id="new-code" name="code" type="text" placeholder="Code e.g. NS-2026" required>
+                <select id="new-role" name="role" required><option value="student">Student</option><option value="admin">Admin</option></select>
+                <input id="new-student-name" name="studentName" type="text" placeholder="Student name" required>
+                <select id="new-division" name="division" required>
+                  <option value="">Division</option>
+                  <option value="Karma">Karma</option>
+                  <option value="Shraddha">Shraddha</option>
+                </select>
+                <select id="new-roll-no" name="rollNo" required>
+                  <option value="">Roll no</option>
+                  <option value="1">1</option><option value="2">2</option><option value="3">3</option><option value="4">4</option><option value="5">5</option>
+                  <option value="6">6</option><option value="7">7</option><option value="8">8</option><option value="9">9</option><option value="10">10</option>
+                  <option value="11">11</option><option value="12">12</option><option value="13">13</option><option value="14">14</option><option value="15">15</option>
+                  <option value="16">16</option><option value="17">17</option><option value="18">18</option><option value="19">19</option><option value="20">20</option>
+                  <option value="21">21</option><option value="22">22</option><option value="23">23</option><option value="24">24</option><option value="25">25</option>
+                  <option value="26">26</option><option value="27">27</option><option value="28">28</option><option value="29">29</option><option value="30">30</option>
+                  <option value="31">31</option><option value="32">32</option><option value="33">33</option><option value="34">34</option><option value="35">35</option>
+                </select>
+                <button id="generate-code" class="button button-outline" type="submit">Create code</button>
+              </form>
+              <p id="admin-code-message" class="form-message" role="status"></p>
+            </div>
+            <div class="code-list-wrap">
+              <div class="mini-heading"><h4>Valid codes</h4><span id="code-count">2 active</span></div>
+              <ul id="code-list" class="code-list">
+                <li><code>NS-2026</code><span>Active now</span></li>
+                <li><code>NS-STUDY</code><span>Active now</span></li>
+              </ul>
+            </div>
           </div>
-          <div class="code-list-wrap">
-            <div class="mini-heading"><h4>Valid codes</h4><span id="code-count">2 active</span></div>
-            <ul id="code-list" class="code-list">
-              <li><code>NS-2026</code><span>Active now</span></li>
-              <li><code>NS-STUDY</code><span>Active now</span></li>
-            </ul>
-          </div>
+        </div>
+        <div id="admin-notices-content" class="admin-tab-panel admin-notices-panel">
           <div class="admin-action notice-admin-action">
             <div class="section-icon warm" aria-hidden="true">&#128197;</div>
             <div>
-              <h4>Exam countdown &amp; important notice</h4>
+              <h4>Exam countdown &amp; Important notice</h4>
               <p>Publish or update the notice shown at the top of the Home tab.</p>
             </div>
             <form id="portal-notice-form" class="portal-notice-form">
@@ -195,21 +272,149 @@
       </section>
 
       <nav class="dashboard-tabs" aria-label="Main sections">
-        <button class="dashboard-tab is-active" type="button" data-panel="notes" aria-selected="true">
-          <span class="tab-icon" aria-hidden="true">📒</span>
+        <button class="dashboard-tab is-active" type="button" data-panel="home" aria-selected="true">
+          <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="m3 10 9-7 9 7v10a1 1 0 0 1-1 1h-5v-7H9v7H4a1 1 0 0 1-1-1V10Z" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+          <span class="tab-label">Home</span>
+        </button>
+        <button class="dashboard-tab" type="button" data-panel="notes" aria-selected="false">
+          <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 3.5h11.5A2.5 2.5 0 0 1 19 6v14H7a3 3 0 0 1-3-3V5.5a2 2 0 0 1 2-2Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 7h7M8 11h7M8 15h5M7 20c-1.7 0-3-1.3-3-3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
           <span class="tab-label">Notes</span>
         </button>
         <button class="dashboard-tab" type="button" data-panel="doubts" aria-selected="false">
-          <span class="tab-icon" aria-hidden="true">💬</span>
+          <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v9a2.5 2.5 0 0 1-2.5 2.5H10l-5 4v-4.5a2.5 2.5 0 0 1-1-2v-9Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M8 9h8M8 12.5h5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
           <span class="tab-label">Q&amp;A</span>
         </button>
         <button class="dashboard-tab" type="button" data-panel="polls" aria-selected="false">
-          <span class="tab-icon" aria-hidden="true">📊</span>
+          <span class="tab-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M4 20V12M10 20V5M16 20V9M22 20V3" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/></svg></span>
           <span class="tab-label">Polls</span>
         </button>
       </nav>
 
-      <div class="dashboard-panel is-active" data-panel="notes">
+      <section id="profile-view" class="profile-settings-view" aria-labelledby="profile-view-title">
+        <header class="profile-view-header">
+          <a class="profile-back-link" href="#top" aria-label="Back to portal sections">
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M19 12H5m0 0 6 6m-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </a>
+          <h2 id="profile-view-title">My Profile</h2>
+          <span class="profile-view-settings-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 8.3a3.7 3.7 0 1 0 0 7.4 3.7 3.7 0 0 0 0-7.4Z" stroke="currentColor" stroke-width="1.7"/><path d="m19.4 13.5 1.1.9-1.6 2.8-1.4-.5a7.8 7.8 0 0 1-1.7 1l-.2 1.5h-3.2l-.3-1.5a7.8 7.8 0 0 1-1.7-1l-1.4.5-1.6-2.8 1.1-.9a7 7 0 0 1 0-2l-1.1-.9 1.6-2.8 1.4.5a7.8 7.8 0 0 1 1.7-1l.3-1.5h3.2l.2 1.5a7.8 7.8 0 0 1 1.7 1l1.4-.5 1.6 2.8-1.1.9a7 7 0 0 1 0 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+          </span>
+        </header>
+
+        <section class="profile-identity" aria-label="Student identity">
+          <div class="profile-compass-avatar" aria-hidden="true">
+            <svg viewBox="0 0 64 64" fill="none"><circle cx="32" cy="32" r="28" stroke="currentColor" stroke-width="1.4" opacity=".55"/><path d="M32 6 38 26 58 32 38 38 32 58 26 38 6 32 26 26 32 6Z" fill="currentColor" opacity=".8"/><path d="m32 18 4 10 10 4-10 4-4 10-4-10-10-4 10-4 4-10Z" fill="#b9fff7"/><circle cx="32" cy="32" r="3.2" fill="#fff"/></svg>
+          </div>
+          <div class="profile-identity-details">
+            <p id="profile-student-name" class="profile-student-name">Student Name</p>
+            <p class="profile-identity-meta">
+              <span><small>Division</small><span id="profile-student-division">-</span></span>
+              <i aria-hidden="true">•</i>
+              <span><small>Roll Number</small><span id="profile-student-roll">-</span></span>
+            </p>
+          </div>
+        </section>
+
+        <section class="profile-stats-card" aria-labelledby="profile-stats-title">
+          <header class="profile-stats-header">
+            <h3 id="profile-stats-title">Your Stats</h3>
+            <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 19V12m5 7V8m5 11V5m5 14V9" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/></svg>
+          </header>
+          <div class="profile-stats-grid">
+            <div class="profile-stat"><span>Total Questions</span><strong id="profile-total-questions">0</strong></div>
+            <div class="profile-stat"><span>Notes Viewed</span><strong id="profile-notes-viewed">0</strong></div>
+            <div class="profile-stat"><span>Poll Votes</span><strong id="profile-poll-votes">0</strong></div>
+          </div>
+        </section>
+
+        <section class="profile-settings-card" aria-label="Settings and account">
+          <button id="profile-activity-button" class="profile-menu-row profile-menu-action" type="button">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 11v5m0-8h.01" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></span>
+            <span class="profile-menu-label">My Activity</span>
+            <svg class="profile-menu-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <div class="profile-menu-row">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="profile-menu-label">Notifications</span>
+            <button id="profile-notifications-toggle" class="profile-notification-switch" type="button" role="switch" aria-label="Notifications" aria-checked="true"><i aria-hidden="true"></i></button>
+          </div>
+          <button id="profile-appearance-button" class="profile-menu-row profile-menu-action" type="button">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M12 3.5c2.4 2.3 3.6 5.1 3.6 8.5s-1.2 6.2-3.6 8.5C9.6 18.2 8.4 15.4 8.4 12s1.2-6.2 3.6-8.5Z" stroke="currentColor" stroke-width="1.5"/></svg></span>
+            <span class="profile-menu-label">Appearance</span>
+            <span class="profile-mode-indicator"><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M20 15.4A8.6 8.6 0 0 1 8.6 4 8.7 8.7 0 1 0 20 15.4Z" fill="currentColor"/></svg>Dark Mode</span>
+            <svg class="profile-menu-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="profile-about-button" class="profile-menu-row profile-menu-action" type="button">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M9.8 9a2.3 2.3 0 1 1 3.8 1.7c-1 .9-1.6 1.2-1.6 2.8m0 3h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="profile-menu-label">About Northstar</span>
+            <svg class="profile-menu-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="profile-help-button" class="profile-menu-row profile-menu-action" type="button">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="1.8"/><path d="M9.8 9a2.3 2.3 0 1 1 3.8 1.7c-1 .9-1.6 1.2-1.6 2.8m0 3h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></span>
+            <span class="profile-menu-label">Help &amp; Support</span>
+            <svg class="profile-menu-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+          <button id="profile-logout-button" class="profile-menu-row profile-menu-action profile-menu-logout" type="button">
+            <span class="profile-menu-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M10 4H5.5A1.5 1.5 0 0 0 4 5.5v13A1.5 1.5 0 0 0 5.5 20H10m5-4 4-4-4-4m4 4H9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            <span class="profile-menu-label">Logout</span>
+            <svg class="profile-menu-chevron" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m9 5 7 7-7 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </button>
+        </section>
+        <p id="profile-settings-message" class="profile-settings-message" role="status" aria-live="polite" hidden></p>
+      </section>
+
+      <dialog id="profile-activity-dialog" class="profile-dialog" aria-labelledby="profile-activity-title">
+        <div class="profile-dialog-card">
+          <header class="profile-dialog-header">
+            <h2 id="profile-activity-title">My Activity</h2>
+            <button class="profile-dialog-close" type="button" data-profile-dialog-close aria-label="Close">×</button>
+          </header>
+          <div id="profile-activity-content" class="profile-dialog-content" aria-live="polite">
+            <p class="profile-dialog-muted">Your recent questions, replies, and votes will appear here.</p>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="profile-appearance-dialog" class="profile-dialog" aria-labelledby="profile-appearance-title">
+        <div class="profile-dialog-card">
+          <header class="profile-dialog-header">
+            <h2 id="profile-appearance-title">Appearance</h2>
+            <button class="profile-dialog-close" type="button" data-profile-dialog-close aria-label="Close">×</button>
+          </header>
+          <div class="profile-dialog-content">
+            <p class="profile-dialog-muted">The Northstar portal currently uses its dark theme on this device.</p>
+            <p id="profile-theme-status" class="profile-dialog-status">Active theme: Dark Mode</p>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="profile-about-dialog" class="profile-dialog" aria-labelledby="profile-about-title">
+        <div class="profile-dialog-card">
+          <header class="profile-dialog-header">
+            <h2 id="profile-about-title">About Northstar</h2>
+            <button class="profile-dialog-close" type="button" data-profile-dialog-close aria-label="Close">×</button>
+          </header>
+          <div class="profile-dialog-content">
+            <p><strong>Northstar</strong> is the Class 9 Study Portal for the Karma and Shraddha divisions.</p>
+            <p class="profile-dialog-muted">A shared space for class notes, questions, and live polls.</p>
+            <p class="profile-dialog-status">Portal status: Online · Built for Karma &amp; Shraddha</p>
+          </div>
+        </div>
+      </dialog>
+      <dialog id="profile-help-dialog" class="profile-dialog" aria-labelledby="profile-help-title">
+        <div class="profile-dialog-card">
+          <header class="profile-dialog-header">
+            <h2 id="profile-help-title">Help &amp; Support</h2>
+            <button class="profile-dialog-close" type="button" data-profile-dialog-close aria-label="Close">×</button>
+          </header>
+          <div class="profile-dialog-content">
+            <p><strong>Login:</strong> Use your division, roll number, and valid access code. Ask your teacher for a code if needed.</p>
+            <p><strong>Class Notes:</strong> Search by chapter or choose a subject filter, then select View PDF.</p>
+            <p><strong>Doubts:</strong> Choose Ask a Doubt to post a question, or open a card to read and add replies.</p>
+            <p class="profile-dialog-muted">If you still need help, contact your class teacher.</p>
+          </div>
+        </div>
+      </dialog>
+
+      <div class="dashboard-panel is-active" data-panel="home">
         <aside id="portal-notice-banner" class="portal-notice-banner" aria-labelledby="portal-notice-heading" hidden>
           <div class="portal-notice-copy">
             <p class="eyebrow">Important notice</p>
@@ -223,17 +428,40 @@
             <span class="countdown-unit"><strong id="notice-countdown-minutes">00</strong><small>minutes</small></span>
           </div>
         </aside>
+        <section class="welcome-panel" aria-label="Public announcement">
+          <div>
+            <p class="eyebrow">Northstar announcement</p>
+            <h2>Study smarter,<br><span>together.</span></h2>
+            <p class="welcome-copy">Browse the latest doubts, discover class notes, and join the conversation with your classmates.</p>
+          </div>
+          <div class="progress-orbit" aria-label="Weekly study progress: 68 percent">
+            <div class="progress-inner"><strong>68%</strong><span>weekly focus</span></div>
+          </div>
+        </section>
+        <section class="section-block home-questions-section" aria-labelledby="home-questions-title">
+          <div class="section-heading">
+            <div><p class="eyebrow">Keep learning together</p><h3 id="home-questions-title">Recent class questions</h3></div>
+            <button class="home-questions-link" type="button" data-open-panel="doubts">See all in Q&amp;A <span aria-hidden="true">&#8594;</span></button>
+          </div>
+          <div id="home-questions-feed" class="feed-list" aria-live="polite"></div>
+        </section>
+      </div>
+
+      <div class="dashboard-panel" data-panel="notes">
         <div class="content-grid">
           <section class="section-block notes-section" aria-labelledby="notes-title">
             <div class="section-heading compact-heading">
-              <div><p class="eyebrow">Your library</p><h3 id="notes-title">Class notes</h3></div>
+              <div><p class="eyebrow">Your Library</p><h3 id="notes-title">Class Notes</h3></div>
               <div class="notes-heading-actions">
                 <span id="notes-count" class="count-label">0 files</span>
               </div>
             </div>
             <div class="notes-browser">
               <label class="visually-hidden" for="notes-search">Search notes by title or keyword</label>
-              <input id="notes-search" class="notes-search" type="search" placeholder="Search notes by title or keyword..." autocomplete="off">
+              <div class="notes-search-wrap">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                <input id="notes-search" class="notes-search" type="search" placeholder="Search notes by title or keyword..." autocomplete="off">
+              </div>
               <div class="notes-filter-row">
                 <div id="notes-subject-filters" class="notes-subject-filters" role="group" aria-label="Filter notes by subject">
                   <button class="notes-filter-chip is-active" type="button" data-notes-subject="All" aria-pressed="true">All</button>
@@ -276,47 +504,73 @@
             <p id="notes-empty-state" class="notes-empty-state" role="status" hidden></p>
           </section>
 
-          <section class="section-block ask-section" aria-labelledby="ask-title">
-            <p class="eyebrow">Need a hand?</p>
-            <h3 id="ask-title">Ask a question</h3>
-            <form id="question-form" class="question-form">
-              <label for="question-subject">Subject</label>
-              <select id="question-subject" required><option value="">Choose a subject</option></select>
-              <label for="question-text">Your question</label>
-              <textarea id="question-text" rows="4" placeholder="What would you like to understand better?" required></textarea>
-              <button id="post-question-button" class="button button-dark button-full" type="submit">Post a New Question <span aria-hidden="true">&#8594;</span></button>
-              <p id="question-message" class="form-message" role="status"></p>
-            </form>
-          </section>
         </div>
-        <section class="section-block home-questions-section" aria-labelledby="home-questions-title">
-          <div class="section-heading">
-            <div><p class="eyebrow">Keep learning together</p><h3 id="home-questions-title">Recent class questions</h3></div>
-            <button class="home-questions-link" type="button" data-open-panel="doubts">See all in Q&amp;A <span aria-hidden="true">&#8594;</span></button>
-          </div>
-          <div id="home-questions-feed" class="feed-list" aria-live="polite"></div>
-        </section>
       </div>
 
       <div class="dashboard-panel" data-panel="doubts">
+        <section class="section-block ask-section ask-doubt-section" aria-labelledby="ask-title">
+          <button id="ask-doubt-toggle" class="accordion-toggle ask-doubt-toggle" type="button" aria-expanded="false">
+            <span class="accordion-plus" aria-hidden="true">+</span>
+            <span id="ask-title">Ask a Doubt</span>
+            <span class="ask-doubt-hint">Share a question with your class</span>
+          </button>
+          <form id="question-form" class="question-form is-collapsed">
+            <label for="question-subject">Subject</label>
+            <select id="question-subject" required><option value="">Choose a subject</option></select>
+            <label for="question-text">Your question</label>
+            <textarea id="question-text" rows="4" placeholder="What would you like to understand better?" required></textarea>
+            <button id="post-question-button" class="button button-dark button-full" type="submit">Post a New Question <span aria-hidden="true">&#8594;</span></button>
+            <p id="question-message" class="form-message" role="status"></p>
+          </form>
+        </section>
         <section class="section-block feed-section" aria-labelledby="feed-title">
           <div class="section-heading">
-            <div><p class="eyebrow">Learn together</p><h3 id="feed-title">Questions feed</h3></div>
+            <div><p class="eyebrow">Learn together</p><h3 id="feed-title">Q&amp;A Doubts</h3></div>
             <span class="live-label"><i></i> Live discussion</span>
           </div>
           <div class="feed-tools" aria-label="Filter and search questions">
             <label class="feed-search" for="question-search"><span aria-hidden="true">&#8981;</span><input id="question-search" type="search" placeholder="Search question text or author..." autocomplete="off"></label>
-            <label class="feed-subject-filter" for="question-subject-filter">Subject
+            <label class="feed-subject-filter visually-hidden" for="question-subject-filter">Filter by subject
               <select id="question-subject-filter" aria-label="Filter questions by subject"><option value="All">All subjects</option></select>
             </label>
             <label class="unanswered-filter" for="unanswered-only-filter">
               <input id="unanswered-only-filter" type="checkbox">
-              <span>Unanswered only</span>
+              <span class="switch-track" aria-hidden="true"><span></span></span>
+              <span class="switch-label">Unanswered Only</span>
             </label>
+            <div id="question-subject-pills" class="subject-filter-pills" role="group" aria-label="Filter questions by subject"></div>
           </div>
           <div id="questions-feed" class="feed-list">
-            <article class="question-card"><div class="feed-avatar blue">M</div><div class="question-body"><div class="question-meta"><strong>Mira Patel</strong><span>Algebra &middot; 14 min ago</span></div><p>How do we know which factorisation method to use for a quadratic expression?</p><div class="answer-count">&#8617; 3 answers</div></div></article>
-            <article class="question-card"><div class="feed-avatar orange">R</div><div class="question-body"><div class="question-meta"><strong>Rohan Mehta</strong><span>Science I &middot; 42 min ago</span></div><p>Can someone explain the difference between an atom and an ion in simple terms?</p><div class="answer-count">&#8617; 5 answers</div></div></article>
+            <article class="question-card" data-subject="Algebra" data-search-text="Mira Patel Algebra How do we know which factorisation method to use for a quadratic expression?" data-reply-count="3">
+              <div class="question-thread-header" hidden><button class="question-thread-back" type="button">&lt; Back</button><strong>Doubt Thread</strong></div>
+              <button class="question-summary" type="button" aria-expanded="false">
+                <span class="feed-avatar blue">M</span>
+                <span class="question-body">
+                  <span class="question-meta"><strong>Mira Patel</strong><span class="question-division-badge">Karma</span><time class="question-time">14 min ago</time></span>
+                  <span class="question-subject-badge">Algebra</span>
+                  <span class="question-preview">How do we know which factorisation method to use for a quadratic expression?</span>
+                  <span class="answer-count">&#128172; 3</span>
+                </span>
+              </button>
+              <div class="question-thread" hidden>
+                <h4 class="replies-heading">Replies</h4>
+              </div>
+            </article>
+            <article class="question-card" data-subject="Science I" data-search-text="Rohan Mehta Science I Can someone explain the difference between an atom and an ion in simple terms?" data-reply-count="5">
+              <div class="question-thread-header" hidden><button class="question-thread-back" type="button">&lt; Back</button><strong>Doubt Thread</strong></div>
+              <button class="question-summary" type="button" aria-expanded="false">
+                <span class="feed-avatar orange">R</span>
+                <span class="question-body">
+                  <span class="question-meta"><strong>Rohan Mehta</strong><span class="question-division-badge">Shraddha</span><time class="question-time">42 min ago</time></span>
+                  <span class="question-subject-badge">Science I</span>
+                  <span class="question-preview">Can someone explain the difference between an atom and an ion in simple terms?</span>
+                  <span class="answer-count">&#128172; 5</span>
+                </span>
+              </button>
+              <div class="question-thread" hidden>
+                <h4 class="replies-heading">Replies</h4>
+              </div>
+            </article>
           </div>
           <div id="questions-empty-state" class="questions-empty-state" role="status" hidden>
             <p>No questions match these filters.</p>
@@ -345,11 +599,29 @@
             <p id="poll-create-message" class="form-message" role="status"></p>
           </form>
           <div id="polls-list" class="polls-list" aria-live="polite"></div>
+          <div class="poll-prompt" role="note">
+            <span class="poll-prompt-icon" aria-hidden="true">🏆</span>
+            <p>Vote now and see the results instantly!</p>
+          </div>
         </section>
       </div>
     </div>
     <footer class="footer">Northstar Study Portal <span>&middot;</span> Built for curious minds</footer>
   </main>
+  <div id="notification-permission-modal" class="notification-permission-modal" role="dialog" aria-modal="true" aria-labelledby="notification-permission-title" aria-describedby="notification-permission-description" tabindex="-1" hidden>
+    <section class="notification-permission-card">
+      <div class="notification-permission-icon" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M18 9a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </div>
+      <p class="notification-permission-eyebrow">Stay in the know</p>
+      <h2 id="notification-permission-title">Enable notifications</h2>
+      <p id="notification-permission-description">Get alerts for exam notices, new notes, and replies to your doubts.</p>
+      <div class="notification-permission-actions">
+        <button id="notification-permission-allow" class="notification-permission-allow" type="button">Allow Notifications</button>
+        <button id="notification-permission-later" class="notification-permission-later" type="button">Maybe Later</button>
+      </div>
+    </section>
+  </div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="script.js"></script>
   <script>
